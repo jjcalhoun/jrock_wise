@@ -231,6 +231,26 @@ export function useUpdateBudget() {
 }
 
 /* ------------------------------------------------------------------ */
+/* Category budgets (per-category monthly targets)                     */
+/* ------------------------------------------------------------------ */
+export function useCategoryBudgets() {
+  return useQuery({
+    queryKey: ["category_budgets"],
+    queryFn: async (): Promise<Record<string, number>> => {
+      const { data, error } = await supabase
+        .from("category_budgets")
+        .select("category_id, monthly_target");
+      if (error) throw error;
+      const out: Record<string, number> = {};
+      for (const row of data ?? []) {
+        out[row.category_id as string] = Number(row.monthly_target);
+      }
+      return out;
+    },
+  });
+}
+
+/* ------------------------------------------------------------------ */
 /* Settings                                                            */
 /* ------------------------------------------------------------------ */
 export function useSettings() {
@@ -243,6 +263,23 @@ export function useSettings() {
         .maybeSingle();
       if (error) throw error;
       return data as Settings | null;
+    },
+  });
+}
+
+export function useUpdateSettings() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: Partial<Settings>) => {
+      const user_id = await currentUserId();
+      const { error } = await supabase
+        .from("settings")
+        .update(input)
+        .eq("user_id", user_id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["settings"] });
     },
   });
 }
