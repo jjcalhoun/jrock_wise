@@ -1,0 +1,87 @@
+@import "tailwindcss";
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;600;700&display=swap");
+
+/* ============================================================
+   Budget PWA — Design System (dark default, light override)
+   ============================================================ */
+
+:root {
+  --color-canvas:        #0B0D10;
+  --color-surface:       #16191F;
+  --color-elevated:      #1E232B;
+  --color-hairline:      #272D38;
+  --color-text:          #F5F7FA;
+  --color-muted:         #8B94A3;
+  --color-faint:         #5C6573;
+  --color-chip-bg:       #1E232B;
+
+  --color-needs:         #3B82F6;
+  --color-wants:         #EAB308;
+  --color-savings:       #22C55E;
+
+  --color-primary:       #2563EB;
+  --color-positive:      #4ADE80;
+  --color-danger:        #F87171;
+  --color-transfer:      #A78BFA;
+
+  --gradient-hero: linear-gradient(135deg, #16A34A, #0E7490 55%, #1D4ED8);
+}
+
+.light {
+  --color-canvas:   #F4F6F8;
+  --color-surface:  #FFFFFF;
+  --color-elevated: #FFFFFF;
+  --color-hairline: #E6E9ED;
+  --color-text:     #0B0D10;
+  --color-muted:    #5B6573;
+  --color-faint:    #9AA3AF;
+  --color-chip-bg:  #F0F2F5;
+  --color-danger:   #EF4444;
+}
+
+@theme inline {
+  --color-canvas:        var(--color-canvas);
+  --color-surface:       var(--color-surface);
+  --color-elevated:      var(--color-elevated);
+  --color-hairline:      var(--color-hairline);
+  --color-tx:            var(--color-text);
+  --color-muted:         var(--color-muted);
+  --color-faint:         var(--color-faint);
+  --color-chip-bg:       var(--color-chip-bg);
+  --color-needs:         var(--color-needs);
+  --color-wants:         var(--color-wants);
+  --color-savings-col:   var(--color-savings);
+  --color-primary:       var(--color-primary);
+  --color-positive:      var(--color-positive);
+  --color-danger:        var(--color-danger);
+  --color-transfer:      var(--color-transfer);
+
+  --font-ui:      "Inter", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-figure:  "Space Grotesk", ui-sans-serif, system-ui, sans-serif;
+  --font-sans:    var(--font-ui);
+
+  --radius-card:  16px;
+  --radius-tile:  12px;
+  --radius-sheet: 24px;
+  --radius-pill:  9999px;
+}
+
+html, body {
+  background-color: var(--color-canvas);
+  color: var(--color-text);
+  font-family: "Inter", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+.font-figure {
+  font-family: "Space Grotesk", ui-sans-serif, sans-serif;
+  font-variant-numeric: tabular-nums;
+}
+
+.bg-hero-gradient {
+  background: var(--gradient-hero);
+}
+
+.scrim {
+  background: rgba(0, 0, 0, 0.6);
+}
