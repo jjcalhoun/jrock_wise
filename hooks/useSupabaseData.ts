@@ -242,6 +242,49 @@ export function useDeleteTransaction() {
   });
 }
 
+export interface ReviewInput {
+  id: string;
+  type: TransactionType;
+  transfer_account_id?: string | null;
+  splits?: SplitInput[]; // expense/refund only
+}
+
+/** Mark a transaction reviewed with its chosen type, splits, transfer pairing. */
+export function useReviewTransaction() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: ReviewInput) => {
+      const user_id = await currentUserId();
+      const { error } = await supabase
+        .from("transactions")
+        .update({
+          type: input.type,
+          reviewed: true,
+          transfer_account_id:
+            input.type === "transfer" ? input.transfer_account_id ?? null : null,
+        })
+        .eq("id", input.id);
+      if (error) throw error;
+
+      const { error: delErr } = await supabase
+        .from("transaction_splits")
+        .delete()
+        .eq("transaction_id", input.id);
+      if (delErr) throw delErr;
+
+      if (input.splits && input.splits.length > 0) {
+        const rows = input.splits.map((s) => ({ ...s, transaction_id: input.id, user_id }));
+        const { error: insErr } = await supabase.from("transaction_splits").insert(rows);
+        if (insErr) throw insErr;
+      }
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["transactions"] });
+      qc.invalidateQueries({ queryKey: ["accounts"] });
+    },
+  });
+}
+
 export interface ImportInput {
   account_id: string;
   rows: { date: string; amount: number; description: string; external_id: string }[];

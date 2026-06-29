@@ -16,6 +16,7 @@ import { Button } from "@/components/ui/Button";
 import { AccountEditor } from "@/components/settings/AccountEditor";
 import { NewTransaction } from "@/components/transactions/NewTransaction";
 import { TransactionEditor } from "@/components/transactions/TransactionEditor";
+import { ReviewFlow } from "@/components/review/ReviewFlow";
 import type { BucketType, Transaction } from "@/lib/types";
 
 export function HomeScreen() {
@@ -25,6 +26,7 @@ export function HomeScreen() {
   const { data: budget } = useBudget();
   const [sheet, setSheet] = useState<"account" | "txn" | null>(null);
   const [editTxn, setEditTxn] = useState<Transaction | null>(null);
+  const [showReview, setShowReview] = useState(false);
 
   const month = currentMonthKey();
   const categoryById = useMemo(
@@ -43,7 +45,9 @@ export function HomeScreen() {
   const safeToSpend = Math.max(0, income - roll.spend);
 
   const recent = transactions.slice(0, 6);
-  const unreviewed = transactions.filter((t) => !t.reviewed).length;
+  const unreviewedList = transactions.filter((t) => !t.reviewed);
+  const unreviewed = unreviewedList.length;
+  const unreviewedTotal = unreviewedList.reduce((s, t) => s + Math.abs(t.amount), 0);
 
   const loading = la || lt;
 
@@ -64,6 +68,31 @@ export function HomeScreen() {
         <p className="font-figure text-5xl font-bold mt-1">{fmt0(safeToSpend)}</p>
         <p className="text-sm opacity-70 mt-1">{monthLabel(month)}</p>
       </div>
+
+      {/* Review-queue card (only when there's something to review) */}
+      {unreviewed > 0 && (
+        <button
+          onClick={() => setShowReview(true)}
+          className="w-full rounded-[16px] border p-4 flex items-center justify-between text-left"
+          style={{ background: "var(--color-surface)", borderColor: "var(--color-primary)" }}
+        >
+          <div>
+            <p className="text-sm font-semibold" style={{ color: "var(--color-text)" }}>
+              {unreviewed} to review
+            </p>
+            <p className="text-xs mt-0.5" style={{ color: "var(--color-muted)" }}>
+              {fmt0(unreviewedTotal)} across new transactions
+            </p>
+          </div>
+          <span
+            className="inline-flex items-center gap-1 text-sm font-semibold px-3 py-1.5 rounded-full text-white"
+            style={{ background: "var(--color-primary)" }}
+          >
+            Review
+            <span className="material-symbols-outlined" style={{ fontSize: 16 }}>arrow_forward</span>
+          </span>
+        </button>
+      )}
 
       {/* Empty state: no accounts yet */}
       {accounts.length === 0 && (
@@ -202,6 +231,7 @@ export function HomeScreen() {
 
       {sheet === "account" && <AccountEditor onClose={() => setSheet(null)} />}
       {sheet === "txn" && <NewTransaction onClose={() => setSheet(null)} />}
+      {showReview && <ReviewFlow onClose={() => setShowReview(false)} />}
       {editTxn && (
         <TransactionEditor txn={editTxn} onClose={() => setEditTxn(null)} />
       )}
