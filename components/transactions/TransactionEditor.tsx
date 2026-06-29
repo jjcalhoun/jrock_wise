@@ -11,6 +11,7 @@ import {
   useUpdateTransaction,
   useDeleteTransaction,
 } from "@/hooks/useSupabaseData";
+import { CategoryPicker, CategoryField } from "@/components/transactions/CategoryPicker";
 import { BUCKETS } from "@/lib/buckets";
 import type { Transaction, TransactionType, BucketType } from "@/lib/types";
 
@@ -36,9 +37,11 @@ export function TransactionEditor({ txn, onClose }: Props) {
   const [categoryId, setCategoryId] = useState(firstSplit?.category_id ?? "");
   const [bucket, setBucket] = useState<BucketType>(firstSplit?.bucket ?? "needs");
   const [notes, setNotes] = useState(txn.notes ?? "");
+  const [showPicker, setShowPicker] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const needsCategory = type === "expense" || type === "refund";
+  const selectedCategory = categories.find((c) => c.id === categoryId);
 
   function pickCategory(id: string, defaultBucket: BucketType) {
     setCategoryId(id);
@@ -148,21 +151,7 @@ export function TransactionEditor({ txn, onClose }: Props) {
               <p className="text-xs font-medium mb-2" style={{ color: "var(--color-muted)" }}>
                 Category
               </p>
-              <div className="flex flex-wrap gap-2 max-h-40 overflow-y-auto">
-                {categories.map((c) => (
-                  <Chip
-                    key={c.id}
-                    active={categoryId === c.id}
-                    color={c.color}
-                    onClick={() => pickCategory(c.id, c.bucket)}
-                  >
-                    <span className="material-symbols-outlined" style={{ fontSize: 15 }}>
-                      {c.icon}
-                    </span>
-                    {c.name}
-                  </Chip>
-                ))}
-              </div>
+              <CategoryField category={selectedCategory} onOpen={() => setShowPicker(true)} />
             </div>
 
             {categoryId && (
@@ -204,6 +193,14 @@ export function TransactionEditor({ txn, onClose }: Props) {
           </Button>
         </div>
       </div>
+
+      {showPicker && (
+        <CategoryPicker
+          selectedId={categoryId}
+          onPick={(c) => pickCategory(c.id, c.bucket)}
+          onClose={() => setShowPicker(false)}
+        />
+      )}
     </Sheet>
   );
 }
