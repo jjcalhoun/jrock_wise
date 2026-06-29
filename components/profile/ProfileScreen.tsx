@@ -14,9 +14,10 @@ import { AccountEditor } from "@/components/settings/AccountEditor";
 import { BudgetEditor } from "@/components/settings/BudgetEditor";
 import { CategoryManager } from "@/components/settings/CategoryManager";
 import { ImportWizard } from "@/components/import/ImportWizard";
+import { ImportStartDateEditor } from "@/components/settings/ImportStartDateEditor";
 import type { Account, ThemeMode } from "@/lib/types";
 
-type Sheet = "budget" | "categories" | "import" | null;
+type Sheet = "budget" | "categories" | "import" | "importDate" | null;
 
 export function ProfileScreen() {
   const router = useRouter();
@@ -98,6 +99,7 @@ export function ProfileScreen() {
           <SettingRow icon="tune" label="Budget plan" onClick={() => setSheet("budget")} />
           <SettingRow icon="category" label="Manage categories" onClick={() => setSheet("categories")} />
           <SettingRow icon="upload_file" label="Import CSV" onClick={() => setSheet("import")} />
+          <SettingRow icon="event" label="Import start date" onClick={() => setSheet("importDate")} />
         </Card>
       </section>
 
@@ -128,6 +130,7 @@ export function ProfileScreen() {
       {sheet === "budget" && <BudgetEditor onClose={() => setSheet(null)} />}
       {sheet === "categories" && <CategoryManager onClose={() => setSheet(null)} />}
       {sheet === "import" && <ImportWizard onClose={() => setSheet(null)} />}
+      {sheet === "importDate" && <ImportStartDateEditor onClose={() => setSheet(null)} />}
     </main>
   );
 }
