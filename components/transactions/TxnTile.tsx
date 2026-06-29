@@ -6,9 +6,10 @@ import type { Transaction, Category } from "@/lib/types";
 interface Props {
   txn: Transaction;
   categoryById: Record<string, Category>;
+  onClick?: () => void;
 }
 
-export function TxnTile({ txn, categoryById }: Props) {
+export function TxnTile({ txn, categoryById, onClick }: Props) {
   const inflow = txn.amount > 0;
   const split = txn.splits ?? [];
   const isSplit = split.length > 1;
@@ -33,8 +34,10 @@ export function TxnTile({ txn, categoryById }: Props) {
     (txn.type === "transfer" ? "Transfer" : firstCat?.name ?? "Uncategorized");
 
   return (
-    <div
-      className="rounded-[12px] border p-3 flex flex-col gap-2"
+    <button
+      type="button"
+      onClick={onClick}
+      className="rounded-[12px] border p-3 flex flex-col gap-2 text-left w-full active:opacity-70 transition-opacity"
       style={{
         background: "var(--color-surface)",
         borderColor: "var(--color-hairline)",
@@ -79,6 +82,6 @@ export function TxnTile({ txn, categoryById }: Props) {
           {shortDate(txn.date)}
         </p>
       </div>
-    </div>
+    </button>
   );
 }

@@ -15,7 +15,8 @@ import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { AccountEditor } from "@/components/settings/AccountEditor";
 import { NewTransaction } from "@/components/transactions/NewTransaction";
-import type { BucketType } from "@/lib/types";
+import { TransactionEditor } from "@/components/transactions/TransactionEditor";
+import type { BucketType, Transaction } from "@/lib/types";
 
 export function HomeScreen() {
   const { data: accounts = [], isLoading: la } = useAccounts();
@@ -23,6 +24,7 @@ export function HomeScreen() {
   const { data: transactions = [], isLoading: lt } = useTransactions();
   const { data: budget } = useBudget();
   const [sheet, setSheet] = useState<"account" | "txn" | null>(null);
+  const [editTxn, setEditTxn] = useState<Transaction | null>(null);
 
   const month = currentMonthKey();
   const categoryById = useMemo(
@@ -126,7 +128,12 @@ export function HomeScreen() {
           </div>
           <div className="grid grid-cols-3 gap-3">
             {recent.map((t) => (
-              <TxnTile key={t.id} txn={t} categoryById={categoryById} />
+              <TxnTile
+                key={t.id}
+                txn={t}
+                categoryById={categoryById}
+                onClick={() => setEditTxn(t)}
+              />
             ))}
           </div>
         </section>
@@ -195,6 +202,9 @@ export function HomeScreen() {
 
       {sheet === "account" && <AccountEditor onClose={() => setSheet(null)} />}
       {sheet === "txn" && <NewTransaction onClose={() => setSheet(null)} />}
+      {editTxn && (
+        <TransactionEditor txn={editTxn} onClose={() => setEditTxn(null)} />
+      )}
     </main>
   );
 }

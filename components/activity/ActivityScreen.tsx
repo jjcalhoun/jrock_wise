@@ -7,11 +7,12 @@ import {
 } from "@/hooks/useSupabaseData";
 import { TxnTile } from "@/components/transactions/TxnTile";
 import { NewTransaction } from "@/components/transactions/NewTransaction";
+import { TransactionEditor } from "@/components/transactions/TransactionEditor";
 import { Chip } from "@/components/ui/Chip";
 import { Input } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
 import { BUCKETS } from "@/lib/buckets";
-import type { BucketType } from "@/lib/types";
+import type { BucketType, Transaction } from "@/lib/types";
 
 export function ActivityScreen() {
   const { data: transactions = [], isLoading } = useTransactions();
@@ -19,6 +20,7 @@ export function ActivityScreen() {
   const [query, setQuery] = useState("");
   const [bucket, setBucket] = useState<BucketType | null>(null);
   const [showNew, setShowNew] = useState(false);
+  const [editTxn, setEditTxn] = useState<Transaction | null>(null);
 
   const categoryById = useMemo(
     () => Object.fromEntries(categories.map((c) => [c.id, c])),
@@ -82,12 +84,20 @@ export function ActivityScreen() {
       ) : (
         <div className="grid grid-cols-3 gap-3">
           {filtered.map((t) => (
-            <TxnTile key={t.id} txn={t} categoryById={categoryById} />
+            <TxnTile
+              key={t.id}
+              txn={t}
+              categoryById={categoryById}
+              onClick={() => setEditTxn(t)}
+            />
           ))}
         </div>
       )}
 
       {showNew && <NewTransaction onClose={() => setShowNew(false)} />}
+      {editTxn && (
+        <TransactionEditor txn={editTxn} onClose={() => setEditTxn(null)} />
+      )}
     </main>
   );
 }
