@@ -8,6 +8,7 @@ import {
 import { TxnTile } from "@/components/transactions/TxnTile";
 import { NewTransaction } from "@/components/transactions/NewTransaction";
 import { TransactionEditor } from "@/components/transactions/TransactionEditor";
+import { ReviewFlow } from "@/components/review/ReviewFlow";
 import { Chip } from "@/components/ui/Chip";
 import { Input } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
@@ -20,7 +21,10 @@ export function ActivityScreen() {
   const [query, setQuery] = useState("");
   const [bucket, setBucket] = useState<BucketType | null>(null);
   const [showNew, setShowNew] = useState(false);
+  const [showReview, setShowReview] = useState(false);
   const [editTxn, setEditTxn] = useState<Transaction | null>(null);
+
+  const unreviewedCount = transactions.filter((t) => !t.reviewed).length;
 
   const categoryById = useMemo(
     () => Object.fromEntries(categories.map((c) => [c.id, c])),
@@ -47,9 +51,22 @@ export function ActivityScreen() {
         <h1 className="font-figure text-xl font-bold" style={{ color: "var(--color-text)" }}>
           Activity
         </h1>
-        <Button size="sm" onClick={() => setShowNew(true)}>
-          + New
-        </Button>
+        <div className="flex items-center gap-2">
+          {unreviewedCount > 0 && (
+            <Button size="sm" onClick={() => setShowReview(true)} className="relative">
+              Review
+              <span
+                className="ml-1.5 inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full text-[10px] font-bold"
+                style={{ background: "#fff", color: "var(--color-primary)" }}
+              >
+                {unreviewedCount}
+              </span>
+            </Button>
+          )}
+          <Button size="sm" variant="secondary" onClick={() => setShowNew(true)}>
+            + New
+          </Button>
+        </div>
       </div>
 
       <Input
@@ -95,6 +112,7 @@ export function ActivityScreen() {
       )}
 
       {showNew && <NewTransaction onClose={() => setShowNew(false)} />}
+      {showReview && <ReviewFlow onClose={() => setShowReview(false)} />}
       {editTxn && (
         <TransactionEditor txn={editTxn} onClose={() => setEditTxn(null)} />
       )}
