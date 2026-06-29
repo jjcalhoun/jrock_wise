@@ -242,6 +242,51 @@ export function useDeleteTransaction() {
   });
 }
 
+export interface ImportInput {
+  account_id: string;
+  rows: { date: string; amount: number; description: string; external_id: string }[];
+}
+
+/** Bulk-import CSV rows as unreviewed transactions, deduped on external_id. */
+export function useImportTransactions() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ account_id, rows }: ImportInput) => {
+      const user_id = await currentUserId();
+      const import_batch_id =
+        typeof crypto !== "undefined" && crypto.randomUUID
+          ? crypto.randomUUID()
+          : `${Date.now()}`;
+      const insertRows = rows.map((r) => ({
+        user_id,
+        account_id,
+        date: r.date,
+        amount: r.amount,
+        description: r.description,
+        merchant: r.description,
+        type: "expense" as const, // placeholder; the Review flow sets the real type
+        source: "csv" as const,
+        external_id: r.external_id,
+        import_batch_id,
+        reviewed: false,
+      }));
+      const { data, error } = await supabase
+        .from("transactions")
+        .upsert(insertRows, {
+          onConflict: "user_id,account_id,external_id",
+          ignoreDuplicates: true,
+        })
+        .select("id");
+      if (error) throw error;
+      return { inserted: data?.length ?? 0, total: rows.length };
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["transactions"] });
+      qc.invalidateQueries({ queryKey: ["accounts"] });
+    },
+  });
+}
+
 /* ------------------------------------------------------------------ */
 /* Budget plan                                                         */
 /* ------------------------------------------------------------------ */
