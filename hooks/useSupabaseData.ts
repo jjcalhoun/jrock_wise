@@ -230,6 +230,53 @@ export function useUpdateBudget() {
   });
 }
 
+export interface CategoryInput {
+  id?: string;
+  name: string;
+  icon: string;
+  color: string;
+  bucket: BucketType;
+  sort_order?: number;
+}
+
+export function useUpsertCategory() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: CategoryInput) => {
+      const user_id = await currentUserId();
+      if (input.id) {
+        const { id, ...rest } = input;
+        const { error } = await supabase
+          .from("categories")
+          .update(rest)
+          .eq("id", id);
+        if (error) throw error;
+      } else {
+        const { error } = await supabase
+          .from("categories")
+          .insert({ ...input, user_id });
+        if (error) throw error;
+      }
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["categories"] }),
+  });
+}
+
+/** Archive instead of delete — splits reference categories, so we keep history. */
+export function useArchiveCategory() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase
+        .from("categories")
+        .update({ is_archived: true })
+        .eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["categories"] }),
+  });
+}
+
 /* ------------------------------------------------------------------ */
 /* Category budgets (per-category monthly targets)                     */
 /* ------------------------------------------------------------------ */
@@ -247,6 +294,23 @@ export function useCategoryBudgets() {
       }
       return out;
     },
+  });
+}
+
+export function useSetCategoryBudget() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: { category_id: string; monthly_target: number }) => {
+      const user_id = await currentUserId();
+      const { error } = await supabase
+        .from("category_budgets")
+        .upsert(
+          { user_id, category_id: input.category_id, monthly_target: input.monthly_target },
+          { onConflict: "user_id,category_id" },
+        );
+      if (error) throw error;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["category_budgets"] }),
   });
 }
 
