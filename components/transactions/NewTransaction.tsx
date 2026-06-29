@@ -10,7 +10,8 @@ import {
   useCategories,
   useAddTransaction,
 } from "@/hooks/useSupabaseData";
-import type { TransactionType } from "@/lib/types";
+import { BUCKETS } from "@/lib/buckets";
+import type { TransactionType, BucketType } from "@/lib/types";
 
 interface Props {
   onClose: () => void;
@@ -29,9 +30,17 @@ export function NewTransaction({ onClose }: Props) {
   const [date, setDate] = useState(todayISO());
   const [accountId, setAccountId] = useState<string>("");
   const [categoryId, setCategoryId] = useState<string>("");
+  const [bucket, setBucket] = useState<BucketType>("needs");
   const [error, setError] = useState<string | null>(null);
 
   const needsCategory = type === "expense";
+
+  // Picking a category pre-fills the bucket with that category's default,
+  // which the user can then override below.
+  function pickCategory(id: string, defaultBucket: BucketType) {
+    setCategoryId(id);
+    setBucket(defaultBucket);
+  }
 
   async function save() {
     setError(null);
@@ -55,7 +64,7 @@ export function NewTransaction({ onClose }: Props) {
         reviewed: true,
         splits:
           needsCategory && cat
-            ? [{ category_id: cat.id, bucket: cat.bucket, amount: signed }]
+            ? [{ category_id: cat.id, bucket, amount: signed }]
             : undefined,
       });
       onClose();
@@ -146,9 +155,33 @@ export function NewTransaction({ onClose }: Props) {
                   key={c.id}
                   active={categoryId === c.id}
                   color={c.color}
-                  onClick={() => setCategoryId(c.id)}
+                  onClick={() => pickCategory(c.id, c.bucket)}
                 >
+                  <span className="material-symbols-outlined" style={{ fontSize: 15 }}>
+                    {c.icon}
+                  </span>
                   {c.name}
+                </Chip>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* bucket — pre-filled from the category, override here */}
+        {needsCategory && categoryId && (
+          <div>
+            <p className="text-xs font-medium mb-2" style={{ color: "var(--color-muted)" }}>
+              Bucket
+            </p>
+            <div className="flex gap-2">
+              {(Object.keys(BUCKETS) as BucketType[]).map((b) => (
+                <Chip
+                  key={b}
+                  active={bucket === b}
+                  color={BUCKETS[b].color}
+                  onClick={() => setBucket(b)}
+                >
+                  {BUCKETS[b].label}
                 </Chip>
               ))}
             </div>
