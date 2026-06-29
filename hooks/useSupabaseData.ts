@@ -300,28 +300,41 @@ export function useImportTransactions() {
         typeof crypto !== "undefined" && crypto.randomUUID
           ? crypto.randomUUID()
           : `${Date.now()}`;
-      const insertRows = rows.map((r) => ({
-        user_id,
-        account_id,
-        date: r.date,
-        amount: r.amount,
-        description: r.description,
-        merchant: r.description,
-        type: "expense" as const, // placeholder; the Review flow sets the real type
-        source: "csv" as const,
-        external_id: r.external_id,
-        import_batch_id,
-        reviewed: false,
-      }));
-      const { data, error } = await supabase
+      // Dedupe in the app: the DB's unique index on external_id is partial
+      // (WHERE external_id IS NOT NULL), which Postgres can't use as an
+      // ON CONFLICT target. So we fetch existing ids and filter, then insert.
+      const { data: existing, error: exErr } = await supabase
         .from("transactions")
-        .upsert(insertRows, {
-          onConflict: "user_id,account_id,external_id",
-          ignoreDuplicates: true,
-        })
-        .select("id");
-      if (error) throw error;
-      return { inserted: data?.length ?? 0, total: rows.length };
+        .select("external_id")
+        .eq("account_id", account_id)
+        .not("external_id", "is", null);
+      if (exErr) throw exErr;
+
+      const seen = new Set((existing ?? []).map((r) => r.external_id as string));
+      const insertRows = [];
+      for (const r of rows) {
+        if (seen.has(r.external_id)) continue; // skip existing + within-batch dupes
+        seen.add(r.external_id);
+        insertRows.push({
+          user_id,
+          account_id,
+          date: r.date,
+          amount: r.amount,
+          description: r.description,
+          merchant: r.description,
+          type: "expense" as const, // placeholder; the Review flow sets the real type
+          source: "csv" as const,
+          external_id: r.external_id,
+          import_batch_id,
+          reviewed: false,
+        });
+      }
+
+      if (insertRows.length > 0) {
+        const { error } = await supabase.from("transactions").insert(insertRows);
+        if (error) throw error;
+      }
+      return { inserted: insertRows.length, total: rows.length };
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["transactions"] });
