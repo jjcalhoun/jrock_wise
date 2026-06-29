@@ -179,6 +179,52 @@ export function useAddTransaction() {
   });
 }
 
+export interface TransactionUpdate {
+  id: string;
+  account_id: string;
+  date: string;
+  amount: number; // signed
+  merchant?: string | null;
+  type: TransactionType;
+  notes?: string | null;
+  splits?: SplitInput[]; // replaces the existing splits
+}
+
+export function useUpdateTransaction() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: TransactionUpdate) => {
+      const user_id = await currentUserId();
+      const { id, splits, ...fields } = input;
+
+      const { error } = await supabase
+        .from("transactions")
+        .update(fields)
+        .eq("id", id);
+      if (error) throw error;
+
+      // Replace splits wholesale: delete the old, insert the new.
+      const { error: delErr } = await supabase
+        .from("transaction_splits")
+        .delete()
+        .eq("transaction_id", id);
+      if (delErr) throw delErr;
+
+      if (splits && splits.length > 0) {
+        const rows = splits.map((s) => ({ ...s, transaction_id: id, user_id }));
+        const { error: insErr } = await supabase
+          .from("transaction_splits")
+          .insert(rows);
+        if (insErr) throw insErr;
+      }
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["transactions"] });
+      qc.invalidateQueries({ queryKey: ["accounts"] });
+    },
+  });
+}
+
 export function useDeleteTransaction() {
   const qc = useQueryClient();
   return useMutation({
