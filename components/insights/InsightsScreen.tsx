@@ -52,7 +52,11 @@ export function InsightsScreen() {
       .sort((a, b) => b.spend - a.spend);
   }, [roll.byCat, categoryById]);
 
-  const gaugeSegments = ranked.map((r) => ({ color: r.cat.color, value: r.spend }));
+  const gaugeSegments = ranked.map((r) => ({
+    color: r.cat.color,
+    value: r.spend,
+    icon: r.cat.icon,
+  }));
 
   const income = budget?.income ?? 0;
   const available = isCurrent ? income - roll.spend : roll.income - roll.spend;
