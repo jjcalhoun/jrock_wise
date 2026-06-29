@@ -3,40 +3,30 @@
 import { useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
-import {
-  useAccounts,
-  useBudget,
-  useUpdateBudget,
-} from "@/hooks/useSupabaseData";
+import { useTheme } from "@/components/providers";
+import { useAccounts, useTransactions } from "@/hooks/useSupabaseData";
 import { allBalances } from "@/lib/aggregations";
-import { useTransactions } from "@/hooks/useSupabaseData";
 import { fmt } from "@/lib/format";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
-import { Input } from "@/components/ui/Input";
+import { Chip } from "@/components/ui/Chip";
 import { AccountEditor } from "@/components/settings/AccountEditor";
-import type { Account } from "@/lib/types";
+import { BudgetEditor } from "@/components/settings/BudgetEditor";
+import { CategoryManager } from "@/components/settings/CategoryManager";
+import type { Account, ThemeMode } from "@/lib/types";
+
+type Sheet = "budget" | "categories" | null;
 
 export function ProfileScreen() {
   const router = useRouter();
+  const { themeMode, setThemeMode } = useTheme();
   const { data: accounts = [] } = useAccounts();
   const { data: transactions = [] } = useTransactions();
-  const { data: budget } = useBudget();
-  const updateBudget = useUpdateBudget();
 
-  const [editing, setEditing] = useState<Account | "new" | null>(null);
-  const [income, setIncome] = useState<string>("");
-  const [incomeSaved, setIncomeSaved] = useState(false);
+  const [editingAccount, setEditingAccount] = useState<Account | "new" | null>(null);
+  const [sheet, setSheet] = useState<Sheet>(null);
 
   const balances = allBalances(accounts, transactions);
-
-  async function saveIncome() {
-    const num = parseFloat(income);
-    if (isNaN(num)) return;
-    await updateBudget.mutateAsync({ income: num });
-    setIncomeSaved(true);
-    setTimeout(() => setIncomeSaved(false), 2000);
-  }
 
   async function signOut() {
     const supabase = createClient();
@@ -59,7 +49,7 @@ export function ProfileScreen() {
           <button
             className="text-xs font-semibold"
             style={{ color: "var(--color-primary)" }}
-            onClick={() => setEditing("new")}
+            onClick={() => setEditingAccount("new")}
           >
             + Add
           </button>
@@ -75,7 +65,7 @@ export function ProfileScreen() {
             {accounts.map((a) => (
               <button
                 key={a.id}
-                onClick={() => setEditing(a)}
+                onClick={() => setEditingAccount(a)}
                 className="w-full flex items-center justify-between px-4 py-3 text-left"
               >
                 <div>
@@ -88,9 +78,7 @@ export function ProfileScreen() {
                 </div>
                 <span
                   className="font-figure text-sm font-semibold"
-                  style={{
-                    color: (balances[a.id] ?? 0) < 0 ? "var(--color-danger)" : "var(--color-text)",
-                  }}
+                  style={{ color: (balances[a.id] ?? 0) < 0 ? "var(--color-danger)" : "var(--color-text)" }}
                 >
                   {fmt(balances[a.id] ?? 0)}
                 </span>
@@ -100,35 +88,69 @@ export function ProfileScreen() {
         )}
       </section>
 
-      {/* Estimated income */}
+      {/* Settings */}
       <section className="space-y-3">
         <h2 className="text-sm font-semibold" style={{ color: "var(--color-text)" }}>
-          Estimated monthly income
+          Settings
         </h2>
-        <Card className="p-4 space-y-3">
-          <Input
-            inputMode="decimal"
-            placeholder={budget ? String(budget.income) : "0.00"}
-            value={income}
-            onChange={(e) => setIncome(e.target.value)}
-          />
-          <Button onClick={saveIncome} disabled={updateBudget.isPending}>
-            {incomeSaved ? "Saved ✓" : updateBudget.isPending ? "Saving…" : "Save income"}
-          </Button>
+        <Card className="divide-y" style={{ borderColor: "var(--color-hairline)" }}>
+          <SettingRow icon="tune" label="Budget plan" onClick={() => setSheet("budget")} />
+          <SettingRow icon="category" label="Manage categories" onClick={() => setSheet("categories")} />
         </Card>
       </section>
 
-      {/* Sign out */}
+      {/* Theme */}
+      <section className="space-y-3">
+        <h2 className="text-sm font-semibold" style={{ color: "var(--color-text)" }}>
+          Theme
+        </h2>
+        <div className="flex gap-2">
+          {(["system", "light", "dark"] as ThemeMode[]).map((m) => (
+            <Chip key={m} active={themeMode === m} onClick={() => setThemeMode(m)}>
+              {m === "system" ? "Device" : m === "light" ? "Light" : "Dark"}
+            </Chip>
+          ))}
+        </div>
+      </section>
+
       <Button variant="secondary" fullWidth onClick={signOut}>
         Sign out
       </Button>
 
-      {editing && (
+      {editingAccount && (
         <AccountEditor
-          account={editing === "new" ? undefined : editing}
-          onClose={() => setEditing(null)}
+          account={editingAccount === "new" ? undefined : editingAccount}
+          onClose={() => setEditingAccount(null)}
         />
       )}
+      {sheet === "budget" && <BudgetEditor onClose={() => setSheet(null)} />}
+      {sheet === "categories" && <CategoryManager onClose={() => setSheet(null)} />}
     </main>
+  );
+}
+
+function SettingRow({
+  icon,
+  label,
+  onClick,
+}: {
+  icon: string;
+  label: string;
+  onClick: () => void;
+}) {
+  return (
+    <button onClick={onClick} className="w-full flex items-center justify-between px-4 py-3 text-left">
+      <span className="flex items-center gap-3">
+        <span className="material-symbols-outlined" style={{ fontSize: 20, color: "var(--color-muted)" }}>
+          {icon}
+        </span>
+        <span className="text-sm" style={{ color: "var(--color-text)" }}>
+          {label}
+        </span>
+      </span>
+      <span className="material-symbols-outlined" style={{ fontSize: 18, color: "var(--color-faint)" }}>
+        chevron_right
+      </span>
+    </button>
   );
 }
