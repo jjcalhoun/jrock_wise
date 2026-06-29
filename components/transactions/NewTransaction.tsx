@@ -10,6 +10,7 @@ import {
   useCategories,
   useAddTransaction,
 } from "@/hooks/useSupabaseData";
+import { CategoryPicker, CategoryField } from "@/components/transactions/CategoryPicker";
 import { BUCKETS } from "@/lib/buckets";
 import type { TransactionType, BucketType } from "@/lib/types";
 
@@ -31,9 +32,11 @@ export function NewTransaction({ onClose }: Props) {
   const [accountId, setAccountId] = useState<string>("");
   const [categoryId, setCategoryId] = useState<string>("");
   const [bucket, setBucket] = useState<BucketType>("needs");
+  const [showPicker, setShowPicker] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const needsCategory = type === "expense";
+  const selectedCategory = categories.find((c) => c.id === categoryId);
 
   // Picking a category pre-fills the bucket with that category's default,
   // which the user can then override below.
@@ -149,21 +152,7 @@ export function NewTransaction({ onClose }: Props) {
             <p className="text-xs font-medium mb-2" style={{ color: "var(--color-muted)" }}>
               Category
             </p>
-            <div className="flex flex-wrap gap-2 max-h-40 overflow-y-auto">
-              {categories.map((c) => (
-                <Chip
-                  key={c.id}
-                  active={categoryId === c.id}
-                  color={c.color}
-                  onClick={() => pickCategory(c.id, c.bucket)}
-                >
-                  <span className="material-symbols-outlined" style={{ fontSize: 15 }}>
-                    {c.icon}
-                  </span>
-                  {c.name}
-                </Chip>
-              ))}
-            </div>
+            <CategoryField category={selectedCategory} onOpen={() => setShowPicker(true)} />
           </div>
         )}
 
@@ -198,6 +187,14 @@ export function NewTransaction({ onClose }: Props) {
           {add.isPending ? "Saving…" : "Add transaction"}
         </Button>
       </div>
+
+      {showPicker && (
+        <CategoryPicker
+          selectedId={categoryId}
+          onPick={(c) => pickCategory(c.id, c.bucket)}
+          onClose={() => setShowPicker(false)}
+        />
+      )}
     </Sheet>
   );
 }

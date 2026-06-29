@@ -1,9 +1,10 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { Sheet } from "@/components/ui/Sheet";
-import { rollup, categoryAverages, monthKey } from "@/lib/aggregations";
+import { rollup, monthKey } from "@/lib/aggregations";
 import { fmt, fmt0, shortDate, monthLabel } from "@/lib/format";
+import { useSetCategoryBudget } from "@/hooks/useSupabaseData";
 import type { Category, Transaction } from "@/lib/types";
 
 interface Props {
@@ -14,6 +15,8 @@ interface Props {
   onClose: () => void;
 }
 
+const MONTH_ABBR = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
 export function CategoryDetail({
   category,
   transactions,
@@ -21,6 +24,12 @@ export function CategoryDetail({
   monthlyTarget,
   onClose,
 }: Props) {
+  const setBudget = useSetCategoryBudget();
+  const [budget, setBudgetInput] = useState(monthlyTarget ? String(monthlyTarget) : "");
+  useEffect(() => {
+    setBudgetInput(monthlyTarget ? String(monthlyTarget) : "");
+  }, [monthlyTarget]);
+
   // 7-month history ending at the selected month
   const history = useMemo(() => {
     const [y, m] = month.split("-").map(Number);
@@ -29,21 +38,26 @@ export function CategoryDetail({
       const d = new Date(y, m - 1 - i, 1);
       const mk = monthKey(d);
       const { byCat } = rollup(transactions, mk);
-      out.push({
-        key: mk,
-        label: `${d.getMonth() + 1}`,
-        spend: byCat[category.id] ?? 0,
-      });
+      out.push({ key: mk, label: MONTH_ABBR[d.getMonth()], spend: byCat[category.id] ?? 0 });
     }
     return out;
   }, [transactions, month, category.id]);
 
-  const maxSpend = Math.max(...history.map((h) => h.spend), monthlyTarget, 1);
+  const maxSpend = Math.max(...history.map((h) => h.spend), 1);
+  const averageMonthly =
+    history.reduce((s, h) => s + h.spend, 0) / history.length;
+  const spentThisMonth = history[history.length - 1]?.spend ?? 0;
 
-  const { avg3, avg6 } = useMemo(() => {
-    const [y, m] = month.split("-").map(Number);
-    return categoryAverages(transactions, category.id, new Date(y, m - 1, 15));
-  }, [transactions, month, category.id]);
+  const budgetNum = parseFloat(budget) || 0;
+  const left = budgetNum - spentThisMonth;
+  const pct = budgetNum > 0 ? (spentThisMonth / budgetNum) * 100 : 100;
+  const over = budgetNum > 0 && spentThisMonth > budgetNum;
+
+  function saveBudget() {
+    const num = parseFloat(budget);
+    if (isNaN(num) || num === monthlyTarget) return;
+    setBudget.mutate({ category_id: category.id, monthly_target: num });
+  }
 
   const monthTxns = useMemo(
     () =>
@@ -56,45 +70,111 @@ export function CategoryDetail({
   );
 
   return (
-    <Sheet title={category.name} onClose={onClose}>
-      <div className="px-5 py-4 space-y-5">
-        {/* history bars */}
-        <div>
-          <p className="text-xs font-medium mb-2" style={{ color: "var(--color-muted)" }}>
-            Last 7 months
+    <Sheet onClose={onClose}>
+      <div className="px-5 pb-4 space-y-5">
+        {/* title */}
+        <div className="flex items-center gap-3">
+          <span
+            className="inline-flex items-center justify-center w-9 h-9 rounded-xl"
+            style={{ background: `${category.color}22` }}
+          >
+            <span className="material-symbols-outlined" style={{ color: category.color }}>
+              {category.icon}
+            </span>
+          </span>
+          <p className="font-figure text-2xl font-bold" style={{ color: "var(--color-text)" }}>
+            {fmt(spentThisMonth)}
           </p>
-          <div className="flex items-end justify-between gap-1 h-28">
-            {history.map((h) => (
-              <div key={h.key} className="flex-1 flex flex-col items-center gap-1">
-                <div className="w-full flex items-end h-full">
-                  <div
-                    className="w-full rounded-t"
-                    style={{
-                      height: `${Math.max(2, (h.spend / maxSpend) * 100)}%`,
-                      background:
-                        h.key === month ? category.color : `${category.color}66`,
-                    }}
-                  />
-                </div>
-                <span className="text-[9px]" style={{ color: "var(--color-faint)" }}>
-                  {h.label}
-                </span>
-              </div>
-            ))}
-          </div>
+          <span className="text-sm" style={{ color: "var(--color-muted)" }}>
+            {monthLabel(month)}
+          </span>
         </div>
 
-        {/* averages + budget */}
-        <div className="grid grid-cols-3 gap-3">
-          <Stat label="3-mo avg" value={fmt0(avg3)} />
-          <Stat label="6-mo avg" value={fmt0(avg6)} />
-          <Stat label="Budget" value={fmt0(monthlyTarget)} />
+        {/* history bars */}
+        <div className="flex items-end justify-between gap-1.5 h-32">
+          {history.map((h) => (
+            <div key={h.key} className="flex-1 flex flex-col items-center gap-1 h-full justify-end">
+              <span className="text-[9px]" style={{ color: "var(--color-faint)" }}>
+                {fmt0(h.spend)}
+              </span>
+              <div
+                className="w-full rounded-t"
+                style={{
+                  height: `${Math.max(2, (h.spend / maxSpend) * 100)}%`,
+                  background: h.key === month ? category.color : "var(--color-hairline)",
+                }}
+              />
+              <span className="text-[9px]" style={{ color: "var(--color-faint)" }}>
+                {h.label}
+              </span>
+            </div>
+          ))}
+        </div>
+
+        {/* average / budget / left */}
+        <div
+          className="rounded-[16px] border p-4 space-y-3"
+          style={{ background: "var(--color-surface)", borderColor: "var(--color-hairline)" }}
+        >
+          <div className="flex items-start justify-between">
+            <div>
+              <p className="text-[10px] uppercase tracking-wide" style={{ color: "var(--color-faint)" }}>
+                Average monthly
+              </p>
+              <p className="font-figure text-lg font-bold" style={{ color: "var(--color-text)" }}>
+                {fmt(averageMonthly)}
+              </p>
+            </div>
+            <div className="text-center">
+              <p className="text-[10px] uppercase tracking-wide mb-1" style={{ color: "var(--color-faint)" }}>
+                Monthly budget
+              </p>
+              <input
+                inputMode="decimal"
+                placeholder="0.00"
+                value={budget}
+                onChange={(e) => setBudgetInput(e.target.value)}
+                onBlur={saveBudget}
+                className="w-24 text-center px-2 py-1.5 rounded-lg text-sm font-figure outline-none border"
+                style={{
+                  background: "var(--color-elevated)",
+                  color: "var(--color-text)",
+                  borderColor: "var(--color-hairline)",
+                }}
+              />
+            </div>
+            <div className="text-right">
+              <p className="text-[10px] uppercase tracking-wide" style={{ color: "var(--color-faint)" }}>
+                Left this month
+              </p>
+              <p
+                className="font-figure text-lg font-bold"
+                style={{ color: left < 0 ? "var(--color-danger)" : "var(--color-positive)" }}
+              >
+                {fmt(left)}
+              </p>
+            </div>
+          </div>
+
+          <p className="text-xs" style={{ color: "var(--color-muted)" }}>
+            <span style={{ color: category.color }}>●</span> {fmt(spentThisMonth)} spent of{" "}
+            {fmt(budgetNum)} budget · {Math.round(pct)}% of budget
+          </p>
+          <div className="w-full h-2 rounded-full overflow-hidden" style={{ background: "var(--color-hairline)" }}>
+            <div
+              className="h-full rounded-full"
+              style={{
+                width: `${Math.min(100, pct)}%`,
+                background: over ? "var(--color-danger)" : category.color,
+              }}
+            />
+          </div>
         </div>
 
         {/* this month's transactions */}
         <div>
-          <p className="text-xs font-medium mb-2" style={{ color: "var(--color-muted)" }}>
-            {monthLabel(month)} transactions
+          <p className="text-sm font-semibold mb-2" style={{ color: "var(--color-text)" }}>
+            {monthLabel(month)}
           </p>
           {monthTxns.length === 0 ? (
             <p className="text-sm" style={{ color: "var(--color-faint)" }}>
@@ -103,17 +183,10 @@ export function CategoryDetail({
           ) : (
             <div className="space-y-1">
               {monthTxns.map((t) => {
-                const split = (t.splits ?? []).find(
-                  (s) => s.category_id === category.id,
-                );
+                const split = (t.splits ?? []).find((s) => s.category_id === category.id);
                 return (
-                  <div
-                    key={t.id}
-                    className="flex items-center justify-between py-1.5 text-sm"
-                  >
-                    <span style={{ color: "var(--color-text)" }}>
-                      {t.merchant ?? "Transaction"}
-                    </span>
+                  <div key={t.id} className="flex items-center justify-between py-1.5 text-sm">
+                    <span style={{ color: "var(--color-text)" }}>{t.merchant ?? "Transaction"}</span>
                     <span className="flex items-center gap-2">
                       <span className="font-figure" style={{ color: "var(--color-text)" }}>
                         {fmt(-(split?.amount ?? 0))}
@@ -130,21 +203,5 @@ export function CategoryDetail({
         </div>
       </div>
     </Sheet>
-  );
-}
-
-function Stat({ label, value }: { label: string; value: string }) {
-  return (
-    <div
-      className="rounded-[12px] border p-3 text-center"
-      style={{ background: "var(--color-surface)", borderColor: "var(--color-hairline)" }}
-    >
-      <p className="text-[10px]" style={{ color: "var(--color-faint)" }}>
-        {label}
-      </p>
-      <p className="font-figure text-sm font-bold mt-0.5" style={{ color: "var(--color-text)" }}>
-        {value}
-      </p>
-    </div>
   );
 }
