@@ -89,6 +89,7 @@ export interface AccountInput {
   starting_balance: number;
   as_of_date: string;
   apr?: number;
+  statement_day?: number | null;
   color?: string | null;
 }
 

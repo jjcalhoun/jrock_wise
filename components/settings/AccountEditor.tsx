@@ -36,6 +36,9 @@ export function AccountEditor({ account, onClose }: Props) {
   );
   const [asOf, setAsOf] = useState(account?.as_of_date ?? todayISO());
   const [apr, setApr] = useState(account ? String(account.apr) : "0");
+  const [statementDay, setStatementDay] = useState(
+    account?.statement_day ? String(account.statement_day) : "",
+  );
   const [error, setError] = useState<string | null>(null);
 
   const isLiability = LIABILITY_TYPES.includes(type);
@@ -57,6 +60,7 @@ export function AccountEditor({ account, onClose }: Props) {
       starting_balance: signed,
       as_of_date: asOf,
       apr: parseFloat(apr) || 0,
+      statement_day: isLiability && statementDay ? parseInt(statementDay) : null,
     };
     try {
       await upsert.mutateAsync(input);
@@ -149,13 +153,41 @@ export function AccountEditor({ account, onClose }: Props) {
         </p>
 
         {isLiability && (
-          <Input
-            label="APR (%)"
-            placeholder="0"
-            inputMode="decimal"
-            value={apr}
-            onChange={(e) => setApr(e.target.value)}
-          />
+          <>
+            <div className="flex gap-3">
+              <div className="flex-1">
+                <Input
+                  label="APR (%)"
+                  placeholder="0"
+                  inputMode="decimal"
+                  value={apr}
+                  onChange={(e) => setApr(e.target.value)}
+                />
+              </div>
+              <div className="flex-1">
+                <Input
+                  label="Statement day"
+                  placeholder="last day"
+                  inputMode="numeric"
+                  maxLength={2}
+                  value={statementDay}
+                  onChange={(e) => setStatementDay(e.target.value)}
+                  disabled={linked}
+                  style={linked ? { opacity: 0.55, cursor: "not-allowed" } : undefined}
+                />
+              </div>
+            </div>
+            {!linked && parseFloat(apr) > 0 && (
+              <p className="text-xs -mt-2" style={{ color: "var(--color-faint)" }}>
+                Estimated interest posts monthly on this day (default: last day of month).
+              </p>
+            )}
+            {linked && (
+              <p className="text-xs -mt-2" style={{ color: "var(--color-faint)" }}>
+                Interest comes from the synced bank feed, not calculated.
+              </p>
+            )}
+          </>
         )}
 
         {error && (
