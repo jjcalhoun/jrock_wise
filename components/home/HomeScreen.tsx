@@ -76,10 +76,10 @@ export function HomeScreen() {
   return (
     <main className="p-4 space-y-5">
       {/* Hero with month navigation */}
-      <div className="rounded-[16px] p-6 bg-hero-gradient text-white">
+      <div className="rounded-[16px] p-6 bg-hero-gradient text-white text-center">
         <p className="text-sm font-medium opacity-80">{heroLabel}</p>
         <p className="font-figure text-5xl font-bold mt-1">{fmt0(heroValue)}</p>
-        <div className="flex items-center gap-3 mt-2">
+        <div className="flex items-center justify-center gap-3 mt-2">
           <button onClick={() => setMonth(addMonth(month, -1))} className="opacity-80 active:opacity-50">
             <span className="material-symbols-outlined" style={{ fontSize: 20 }}>chevron_left</span>
           </button>
