@@ -50,17 +50,14 @@ export async function accrueInterest(
 ): Promise<AccrueResult> {
   const today = iso(new Date());
 
-  const [{ data: accounts }, { data: maps }, { data: cats }, { data: balances }] =
-    await Promise.all([
-      supabase.from("accounts").select("*").eq("user_id", userId),
-      supabase.from("simplefin_account_map").select("account_id").eq("user_id", userId),
-      supabase.from("categories").select("id, bucket, name").eq("user_id", userId),
-      supabase.from("account_balances").select("account_id, balance").eq("user_id", userId),
-    ]);
+  const [{ data: accounts }, { data: maps }, { data: balances }] = await Promise.all([
+    supabase.from("accounts").select("*").eq("user_id", userId),
+    supabase.from("simplefin_account_map").select("account_id").eq("user_id", userId),
+    supabase.from("account_balances").select("account_id, balance").eq("user_id", userId),
+  ]);
 
   const linked = new Set((maps ?? []).map((m) => m.account_id as string));
   const balanceOf = new Map((balances ?? []).map((b) => [b.account_id as string, Number(b.balance)]));
-  const fees = (cats ?? []).find((c) => c.name === "Fees") as { id: string; bucket: string } | undefined;
 
   let inserted = 0;
   const errors: string[] = [];
@@ -85,38 +82,26 @@ export async function accrueInterest(
       .maybeSingle();
     if (existing) continue;
 
-    const amount = -interest; // increases what's owed
-    const { data: txn, error: txnErr } = await supabase
-      .from("transactions")
-      .insert({
-        user_id: userId,
-        account_id: a.id,
-        date: postDate,
-        amount,
-        description: "Interest charge",
-        merchant: "Interest charge",
-        type: "expense",
-        source: "interest",
-        external_id: externalId,
-        reviewed: true,
-      })
-      .select("id")
-      .single();
-    if (txnErr || !txn) {
-      errors.push(txnErr?.message ?? "Interest insert failed");
+    // No category split: the transaction amount increases what's owed (so it
+    // shows in the account balance), but with no split it is excluded from
+    // spend/leftover — spend is computed only from splits.
+    const { error: txnErr } = await supabase.from("transactions").insert({
+      user_id: userId,
+      account_id: a.id,
+      date: postDate,
+      amount: -interest, // increases what's owed
+      description: "Interest charge",
+      merchant: "Interest charge",
+      type: "expense",
+      source: "interest",
+      external_id: externalId,
+      reviewed: true,
+    });
+    if (txnErr) {
+      errors.push(txnErr.message);
       continue;
     }
     inserted++;
-
-    if (fees) {
-      await supabase.from("transaction_splits").insert({
-        user_id: userId,
-        transaction_id: txn.id,
-        category_id: fees.id,
-        bucket: fees.bucket,
-        amount,
-      });
-    }
   }
 
   return { inserted, errors };
