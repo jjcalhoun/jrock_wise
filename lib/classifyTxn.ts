@@ -13,7 +13,8 @@ import type { AccountType, TransactionType } from "@/lib/types";
    - The liability sign convention is inferred per-account from the reported
      balance sign, so it adapts to whatever the institution does. */
 
-const PAYMENT_RE = /\b(payment|autopay|auto[\s-]?pay|thank\s*you|online\s*payment|e-?pay|bill\s*pay)\b/i;
+const PAYMENT_RE =
+  /\b(payment|pmt|autopay|auto[\s-]?pay|thank\s*you|online\s*payment|e-?payment|e-?pay|web\s*pay|bill\s*pay(?:ment)?|card\s*pay(?:ment)?)\b/i;
 const INTEREST_RE = /(interest|finance\s*charge|fin\s*chg|apr\s*charge)/i;
 
 export interface ClassifyInput {
