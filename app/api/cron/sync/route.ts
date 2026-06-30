@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { syncUser } from "@/lib/simplefinSync";
+import { generateRecurring } from "@/lib/recurring";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -17,16 +18,24 @@ export async function GET(request: Request) {
 
   const supabase = createAdminClient();
 
-  // Distinct users that have at least one SimpleFIN connection.
-  const { data: conns, error } = await supabase
-    .from("simplefin_connections")
-    .select("user_id");
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  // Distinct users with a SimpleFIN connection and/or recurring rules.
+  const [{ data: conns, error: cErr }, { data: rules, error: rErr }] = await Promise.all([
+    supabase.from("simplefin_connections").select("user_id"),
+    supabase.from("recurring_rules").select("user_id").eq("active", true),
+  ]);
+  if (cErr) return NextResponse.json({ error: cErr.message }, { status: 500 });
+  if (rErr) return NextResponse.json({ error: rErr.message }, { status: 500 });
 
-  const userIds = [...new Set((conns ?? []).map((c) => c.user_id as string))];
+  const userIds = [
+    ...new Set([
+      ...(conns ?? []).map((c) => c.user_id as string),
+      ...(rules ?? []).map((r) => r.user_id as string),
+    ]),
+  ];
 
   let inserted = 0;
   let balancesUpdated = 0;
+  let recurringInserted = 0;
   const errors: string[] = [];
   for (const userId of userIds) {
     try {
@@ -37,7 +46,20 @@ export async function GET(request: Request) {
     } catch (e) {
       errors.push(e instanceof Error ? e.message : `sync failed for ${userId}`);
     }
+    try {
+      const g = await generateRecurring(supabase, userId);
+      recurringInserted += g.inserted;
+      errors.push(...g.errors);
+    } catch (e) {
+      errors.push(e instanceof Error ? e.message : `recurring failed for ${userId}`);
+    }
   }
 
-  return NextResponse.json({ users: userIds.length, inserted, balancesUpdated, errors });
+  return NextResponse.json({
+    users: userIds.length,
+    inserted,
+    balancesUpdated,
+    recurringInserted,
+    errors,
+  });
 }
