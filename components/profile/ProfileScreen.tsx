@@ -14,9 +14,10 @@ import { BudgetEditor } from "@/components/settings/BudgetEditor";
 import { CategoryManager } from "@/components/settings/CategoryManager";
 import { ImportWizard } from "@/components/import/ImportWizard";
 import { ImportStartDateEditor } from "@/components/settings/ImportStartDateEditor";
+import { ConnectionsManager } from "@/components/settings/ConnectionsManager";
 import type { Account, ThemeMode } from "@/lib/types";
 
-type Sheet = "budget" | "categories" | "import" | "importDate" | null;
+type Sheet = "budget" | "categories" | "import" | "importDate" | "connections" | null;
 
 export function ProfileScreen() {
   const router = useRouter();
@@ -95,6 +96,7 @@ export function ProfileScreen() {
         <Card className="divide-y" style={{ borderColor: "var(--color-hairline)" }}>
           <SettingRow icon="tune" label="Budget plan" onClick={() => setSheet("budget")} />
           <SettingRow icon="category" label="Manage categories" onClick={() => setSheet("categories")} />
+          <SettingRow icon="account_balance" label="Bank connections" onClick={() => setSheet("connections")} />
           <SettingRow icon="upload_file" label="Import CSV" onClick={() => setSheet("import")} />
           <SettingRow icon="event" label="Import start date" onClick={() => setSheet("importDate")} />
         </Card>
@@ -126,6 +128,7 @@ export function ProfileScreen() {
       )}
       {sheet === "budget" && <BudgetEditor onClose={() => setSheet(null)} />}
       {sheet === "categories" && <CategoryManager onClose={() => setSheet(null)} />}
+      {sheet === "connections" && <ConnectionsManager onClose={() => setSheet(null)} />}
       {sheet === "import" && <ImportWizard onClose={() => setSheet(null)} />}
       {sheet === "importDate" && <ImportStartDateEditor onClose={() => setSheet(null)} />}
     </main>

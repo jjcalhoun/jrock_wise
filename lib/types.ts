@@ -16,6 +16,8 @@ export interface Account {
   apr: number;
   color?: string | null;
   sort_order: number;
+  live_balance?: number | null; // SimpleFIN live balance for linked accounts
+  live_balance_at?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -99,7 +101,26 @@ export interface Settings {
   theme_mode: ThemeMode;
   debt_strategy: DebtStrategy;
   debt_extra: number;
+  autocategorize_imports: boolean;
   updated_at: string;
+}
+
+export interface SimplefinConnection {
+  id: string;
+  user_id: string;
+  last_synced_at?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SimplefinAccountMapping {
+  id: string;
+  user_id: string;
+  connection_id: string;
+  simplefin_account_id: string;
+  account_id: string;
+  org_name?: string | null;
+  created_at: string;
 }
 
 export interface AccountBalance {
