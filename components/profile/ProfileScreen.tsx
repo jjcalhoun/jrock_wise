@@ -4,8 +4,7 @@ import { useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
 import { useTheme } from "@/components/providers";
-import { useAccounts, useTransactions } from "@/hooks/useSupabaseData";
-import { allBalances } from "@/lib/aggregations";
+import { useAccounts, useAccountBalances } from "@/hooks/useSupabaseData";
 import { fmt } from "@/lib/format";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
@@ -23,12 +22,10 @@ export function ProfileScreen() {
   const router = useRouter();
   const { themeMode, setThemeMode } = useTheme();
   const { data: accounts = [] } = useAccounts();
-  const { data: transactions = [] } = useTransactions();
+  const { data: balances = {} } = useAccountBalances();
 
   const [editingAccount, setEditingAccount] = useState<Account | "new" | null>(null);
   const [sheet, setSheet] = useState<Sheet>(null);
-
-  const balances = allBalances(accounts, transactions);
 
   async function signOut() {
     const supabase = createClient();

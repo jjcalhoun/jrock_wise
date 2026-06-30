@@ -1,11 +1,12 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import {
   useTransactions,
   useCategories,
 } from "@/hooks/useSupabaseData";
+import { useTxnWindow } from "@/components/providers";
 import { TxnTile } from "@/components/transactions/TxnTile";
 import { NewTransaction } from "@/components/transactions/NewTransaction";
 import { TransactionEditor } from "@/components/transactions/TransactionEditor";
@@ -25,6 +26,7 @@ export function ActivityScreen() {
   const router = useRouter();
   const { data: transactions = [], isLoading } = useTransactions();
   const { data: categories = [] } = useCategories();
+  const { ensureSince } = useTxnWindow();
   const [query, setQuery] = useState("");
   const [bucket, setBucket] = useState<BucketType | null>(null);
   const [filters, setFilters] = useState<ActivityFilters>(EMPTY_FILTERS);
@@ -34,7 +36,9 @@ export function ActivityScreen() {
   const [editTxn, setEditTxn] = useState<Transaction | null>(null);
 
   const years = useMemo(() => {
+    const cur = new Date().getFullYear();
     const set = new Set<number>();
+    for (let y = cur; y >= cur - 7; y--) set.add(y); // selectable even if not yet loaded
     for (const t of transactions) set.add(Number(t.date.slice(0, 4)));
     return [...set].sort((a, b) => b - a);
   }, [transactions]);
@@ -44,6 +48,15 @@ export function ActivityScreen() {
   const typeParam = params.get("type"); // "income" | "spending"
   const monthParam = params.get("month"); // "YYYY-MM"
   const hasDeepFilter = typeParam === "income" || typeParam === "spending";
+
+  // expand the loaded window when filters reach older than the default window
+  useEffect(() => {
+    if (monthParam) ensureSince(`${monthParam}-01`);
+    if (filters.from) ensureSince(filters.from);
+    if (filters.year) ensureSince(`${filters.year}-01-01`);
+    if (filters.month && !filters.year && !filters.from) ensureSince("1970-01-01");
+  }, [filters, monthParam, ensureSince]);
+
   const deepLabel =
     typeParam === "income"
       ? `Income${monthParam ? ` · ${monthLabel(monthParam)}` : ""}`

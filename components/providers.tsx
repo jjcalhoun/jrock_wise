@@ -1,7 +1,7 @@
 "use client";
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { useState, createContext, useContext, useEffect } from "react";
+import { useState, createContext, useContext, useEffect, useCallback } from "react";
 import type { ThemeMode } from "@/lib/types";
 
 /* ---- TanStack Query ---- */
@@ -41,10 +41,36 @@ const ThemeContext = createContext<ThemeContextValue>({
 });
 export const useTheme = () => useContext(ThemeContext);
 
+/* ---- Transaction window ----
+   We only load transactions on/after `since` (default ~13 months back) so the
+   working set stays bounded as history grows. Screens call ensureSince(date)
+   to expand the window backwards on demand (older months / date filters). */
+function defaultSince(): string {
+  const d = new Date();
+  d.setMonth(d.getMonth() - 13);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`;
+}
+interface TxnWindowValue {
+  since: string; // ISO date lower bound
+  ensureSince: (date: string) => void;
+}
+const TxnWindowContext = createContext<TxnWindowValue>({
+  since: defaultSince(),
+  ensureSince: () => {},
+});
+export const useTxnWindow = () => useContext(TxnWindowContext);
+
 export function Providers({ children }: { children: React.ReactNode }) {
   const queryClient = getQueryClient();
   const [themeMode, setThemeMode] = useState<ThemeMode>("system");
   const [prefersDark, setPrefersDark] = useState(true);
+  const [since, setSince] = useState(defaultSince);
+  const ensureSince = useCallback(
+    (date: string) => {
+      if (date && date < since) setSince(date.slice(0, 7) + "-01");
+    },
+    [since],
+  );
 
   useEffect(() => {
     const mq = window.matchMedia("(prefers-color-scheme: dark)");
@@ -64,7 +90,9 @@ export function Providers({ children }: { children: React.ReactNode }) {
 
   return (
     <ThemeContext.Provider value={{ themeMode, resolvedTheme, setThemeMode }}>
-      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+      <TxnWindowContext.Provider value={{ since, ensureSince }}>
+        <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+      </TxnWindowContext.Provider>
     </ThemeContext.Provider>
   );
 }

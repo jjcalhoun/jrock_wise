@@ -2,6 +2,7 @@
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { createClient } from "@/lib/supabase/client";
+import { useTxnWindow } from "@/components/providers";
 import type {
   Account,
   Category,
@@ -63,6 +64,24 @@ export function useAccounts() {
   });
 }
 
+/** Account balances computed server-side by the account_balances view
+ *  (starting balance + everything after the as-of date). Independent of the
+ *  transaction window, so it stays correct no matter how far back we load. */
+export function useAccountBalances() {
+  return useQuery({
+    queryKey: ["account_balances"],
+    queryFn: async (): Promise<Record<string, number>> => {
+      const { data, error } = await supabase
+        .from("account_balances")
+        .select("account_id, balance");
+      if (error) throw error;
+      const out: Record<string, number> = {};
+      for (const r of data ?? []) out[r.account_id as string] = Number(r.balance);
+      return out;
+    },
+  });
+}
+
 export interface AccountInput {
   name: string;
   type: Account["type"];
@@ -94,6 +113,7 @@ export function useUpsertAccount() {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["accounts"] });
+      qc.invalidateQueries({ queryKey: ["account_balances"] });
     },
   });
 }
@@ -108,6 +128,7 @@ export function useDeleteAccount() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["accounts"] });
       qc.invalidateQueries({ queryKey: ["transactions"] });
+      qc.invalidateQueries({ queryKey: ["account_balances"] });
     },
   });
 }
@@ -115,13 +136,17 @@ export function useDeleteAccount() {
 /* ------------------------------------------------------------------ */
 /* Transactions (with splits embedded)                                 */
 /* ------------------------------------------------------------------ */
+/** Transactions within the current window (date >= since), splits embedded.
+ *  The window expands backwards on demand via useTxnWindow().ensureSince(). */
 export function useTransactions() {
+  const { since } = useTxnWindow();
   return useQuery({
-    queryKey: ["transactions"],
+    queryKey: ["transactions", since],
     queryFn: async (): Promise<Transaction[]> => {
       const { data, error } = await supabase
         .from("transactions")
         .select("*, splits:transaction_splits(*)")
+        .gte("date", since)
         .order("date", { ascending: false });
       if (error) throw error;
       return data as Transaction[];
@@ -175,6 +200,7 @@ export function useAddTransaction() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["transactions"] });
       qc.invalidateQueries({ queryKey: ["accounts"] });
+      qc.invalidateQueries({ queryKey: ["account_balances"] });
     },
   });
 }
@@ -222,6 +248,7 @@ export function useUpdateTransaction() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["transactions"] });
       qc.invalidateQueries({ queryKey: ["accounts"] });
+      qc.invalidateQueries({ queryKey: ["account_balances"] });
     },
   });
 }
@@ -239,6 +266,7 @@ export function useDeleteTransaction() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["transactions"] });
       qc.invalidateQueries({ queryKey: ["accounts"] });
+      qc.invalidateQueries({ queryKey: ["account_balances"] });
     },
   });
 }
@@ -282,6 +310,7 @@ export function useReviewTransaction() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["transactions"] });
       qc.invalidateQueries({ queryKey: ["accounts"] });
+      qc.invalidateQueries({ queryKey: ["account_balances"] });
     },
   });
 }
@@ -340,6 +369,7 @@ export function useImportTransactions() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["transactions"] });
       qc.invalidateQueries({ queryKey: ["accounts"] });
+      qc.invalidateQueries({ queryKey: ["account_balances"] });
     },
   });
 }
