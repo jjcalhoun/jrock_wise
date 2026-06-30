@@ -20,6 +20,7 @@ import { BUCKETS } from "@/lib/buckets";
 import { TxnTile } from "@/components/transactions/TxnTile";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
+import { GaugeLoader } from "@/components/ui/GaugeLoader";
 import { AccountEditor } from "@/components/settings/AccountEditor";
 import { NewTransaction } from "@/components/transactions/NewTransaction";
 import { TransactionEditor } from "@/components/transactions/TransactionEditor";
@@ -65,12 +66,7 @@ export function HomeScreen() {
   const loading = la || lt;
 
   if (loading) {
-    return (
-      <div className="p-4 space-y-4 animate-pulse">
-        <div className="h-32 rounded-[16px]" style={{ background: "var(--color-surface)" }} />
-        <div className="h-24 rounded-[16px]" style={{ background: "var(--color-surface)" }} />
-      </div>
-    );
+    return <GaugeLoader />;
   }
 
   return (

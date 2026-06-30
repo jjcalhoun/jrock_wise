@@ -11,6 +11,7 @@ import { NewTransaction } from "@/components/transactions/NewTransaction";
 import { TransactionEditor } from "@/components/transactions/TransactionEditor";
 import { ReviewFlow } from "@/components/review/ReviewFlow";
 import { FilterSheet, EMPTY_FILTERS, activeFilterCount, type ActivityFilters } from "@/components/activity/FilterSheet";
+import { GaugeLoader } from "@/components/ui/GaugeLoader";
 import { Chip } from "@/components/ui/Chip";
 import { Input } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
@@ -153,9 +154,7 @@ export function ActivityScreen() {
       </div>
 
       {isLoading ? (
-        <p className="text-sm text-center py-8" style={{ color: "var(--color-muted)" }}>
-          Loading…
-        </p>
+        <GaugeLoader />
       ) : filtered.length === 0 ? (
         <p className="text-sm text-center py-8" style={{ color: "var(--color-muted)" }}>
           {transactions.length === 0
