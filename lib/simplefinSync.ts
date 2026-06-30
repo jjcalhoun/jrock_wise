@@ -2,7 +2,8 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { decrypt } from "@/lib/crypto";
 import { fetchAccounts } from "@/lib/simplefin";
 import { guessCategory } from "@/lib/autocategorize";
-import type { Category } from "@/lib/types";
+import { classifyTxn } from "@/lib/classifyTxn";
+import type { Account, Category } from "@/lib/types";
 
 const DAYS_90 = 90 * 24 * 60 * 60;
 
@@ -22,13 +23,19 @@ export async function syncUser(
   userId: string,
   opts: { connectionId?: string } = {},
 ): Promise<SyncResult> {
-  const [{ data: settings }, { data: categories }, { data: maps }] = await Promise.all([
-    supabase.from("settings").select("autocategorize_imports").eq("user_id", userId).single(),
-    supabase.from("categories").select("*").eq("user_id", userId).eq("is_archived", false),
-    supabase.from("simplefin_account_map").select("*").eq("user_id", userId),
-  ]);
+  const [{ data: settings }, { data: categories }, { data: maps }, { data: accounts }] =
+    await Promise.all([
+      supabase.from("settings").select("autocategorize_imports").eq("user_id", userId).single(),
+      supabase.from("categories").select("*").eq("user_id", userId).eq("is_archived", false),
+      supabase.from("simplefin_account_map").select("*").eq("user_id", userId),
+      supabase.from("accounts").select("id, type").eq("user_id", userId),
+    ]);
   const autocategorize = settings?.autocategorize_imports ?? true;
   const cats = (categories ?? []) as Category[];
+  const feesCat = cats.find((c) => c.name === "Fees");
+  const typeFor = new Map(
+    (accounts ?? []).map((a) => [a.id as string, a.type as Account["type"]]),
+  );
   const accountFor = new Map(
     (maps ?? []).map((m) => [m.simplefin_account_id as string, m.account_id as string]),
   );
@@ -96,10 +103,23 @@ export async function syncUser(
         if (seen.has(externalId)) continue;
         seen.add(externalId);
 
-        const amount = Number(t.amount);
         const description = t.payee || t.description || "Transaction";
-        const isExpense = amount < 0;
-        const guess = autocategorize && isExpense ? guessCategory(description, cats) : null;
+        const c = classifyTxn({
+          amount: Number(t.amount),
+          description,
+          accountType: typeFor.get(ourAccountId) ?? "checking",
+          accountBalance: Number(acct.balance),
+        });
+
+        // Pick a category for the expense split: interest → Fees; else best-guess.
+        const splitCat =
+          c.type === "expense"
+            ? c.interest
+              ? feesCat ?? null
+              : autocategorize
+                ? guessCategory(description, cats)
+                : null
+            : null;
 
         const { data: txn, error: txnErr } = await supabase
           .from("transactions")
@@ -107,13 +127,13 @@ export async function syncUser(
             user_id: userId,
             account_id: ourAccountId,
             date: new Date(t.posted * 1000).toISOString().slice(0, 10),
-            amount,
+            amount: c.normalizedAmount,
             description,
             merchant: description,
-            type: isExpense ? "expense" : "income",
+            type: c.type,
             source: "sync",
             external_id: externalId,
-            reviewed: false,
+            reviewed: c.autoReview,
           })
           .select("id")
           .single();
@@ -123,14 +143,14 @@ export async function syncUser(
         }
         inserted++;
 
-        // Best-guess split for categorized expenses (signed, sums to parent).
-        if (guess) {
+        // Expense split (signed negative, sums to parent).
+        if (splitCat) {
           await supabase.from("transaction_splits").insert({
             user_id: userId,
             transaction_id: txn.id,
-            category_id: guess.id,
-            bucket: guess.bucket,
-            amount,
+            category_id: splitCat.id,
+            bucket: splitCat.bucket,
+            amount: c.normalizedAmount,
           });
         }
       }
