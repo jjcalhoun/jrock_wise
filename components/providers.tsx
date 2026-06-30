@@ -7,7 +7,18 @@ import type { ThemeMode } from "@/lib/types";
 /* ---- TanStack Query ---- */
 function makeQueryClient() {
   return new QueryClient({
-    defaultOptions: { queries: { staleTime: 60_000 } },
+    defaultOptions: {
+      queries: {
+        // Keep data cached across tab switches so navigation is instant.
+        // Mutations (add/edit/import/review) invalidate the relevant queries,
+        // so the cache stays correct without time-based refetching.
+        staleTime: 5 * 60_000,
+        gcTime: 30 * 60_000,
+        refetchOnMount: false,
+        refetchOnWindowFocus: false,
+        retry: 1,
+      },
+    },
   });
 }
 let browserQueryClient: QueryClient | undefined;
