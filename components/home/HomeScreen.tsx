@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   useAccounts,
   useCategories,
@@ -9,6 +10,12 @@ import {
 } from "@/hooks/useSupabaseData";
 import { rollup, allBalances } from "@/lib/aggregations";
 import { fmt0, fmt, currentMonthKey, monthLabel } from "@/lib/format";
+
+function addMonth(key: string, delta: number): string {
+  const [y, m] = key.split("-").map(Number);
+  const d = new Date(y, m - 1 + delta, 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
 import { BUCKETS } from "@/lib/buckets";
 import { TxnTile } from "@/components/transactions/TxnTile";
 import { Card } from "@/components/ui/Card";
@@ -20,6 +27,7 @@ import { ReviewFlow } from "@/components/review/ReviewFlow";
 import type { BucketType, Transaction } from "@/lib/types";
 
 export function HomeScreen() {
+  const router = useRouter();
   const { data: accounts = [], isLoading: la } = useAccounts();
   const { data: categories = [] } = useCategories();
   const { data: transactions = [], isLoading: lt } = useTransactions();
@@ -28,7 +36,10 @@ export function HomeScreen() {
   const [editTxn, setEditTxn] = useState<Transaction | null>(null);
   const [showReview, setShowReview] = useState(false);
 
-  const month = currentMonthKey();
+  const thisMonth = currentMonthKey();
+  const [month, setMonth] = useState(thisMonth);
+  const isCurrent = month === thisMonth;
+  const canGoForward = month < thisMonth;
   const categoryById = useMemo(
     () => Object.fromEntries(categories.map((c) => [c.id, c])),
     [categories],
@@ -42,7 +53,9 @@ export function HomeScreen() {
 
   const roll = useMemo(() => rollup(transactions, month), [transactions, month]);
   const income = budget?.income ?? 0;
-  const safeToSpend = Math.max(0, income - roll.spend);
+  // current month → "safe to spend" (expected income − spent); past → actual net
+  const heroValue = isCurrent ? Math.max(0, income - roll.spend) : roll.income - roll.spend;
+  const heroLabel = isCurrent ? "Safe to spend" : "Net";
 
   const recent = transactions.slice(0, 6);
   const unreviewedList = transactions.filter((t) => !t.reviewed);
@@ -62,11 +75,24 @@ export function HomeScreen() {
 
   return (
     <main className="p-4 space-y-5">
-      {/* Hero */}
+      {/* Hero with month navigation */}
       <div className="rounded-[16px] p-6 bg-hero-gradient text-white">
-        <p className="text-sm font-medium opacity-80">Safe to spend</p>
-        <p className="font-figure text-5xl font-bold mt-1">{fmt0(safeToSpend)}</p>
-        <p className="text-sm opacity-70 mt-1">{monthLabel(month)}</p>
+        <p className="text-sm font-medium opacity-80">{heroLabel}</p>
+        <p className="font-figure text-5xl font-bold mt-1">{fmt0(heroValue)}</p>
+        <div className="flex items-center gap-3 mt-2">
+          <button onClick={() => setMonth(addMonth(month, -1))} className="opacity-80 active:opacity-50">
+            <span className="material-symbols-outlined" style={{ fontSize: 20 }}>chevron_left</span>
+          </button>
+          <span className="text-sm opacity-90 min-w-[110px] text-center">{monthLabel(month)}</span>
+          <button
+            onClick={() => canGoForward && setMonth(addMonth(month, 1))}
+            disabled={!canGoForward}
+            className="active:opacity-50"
+            style={{ opacity: canGoForward ? 0.8 : 0.3 }}
+          >
+            <span className="material-symbols-outlined" style={{ fontSize: 20 }}>chevron_right</span>
+          </button>
+        </div>
       </div>
 
       {/* Review-queue card (only when there's something to review) */}
@@ -104,11 +130,19 @@ export function HomeScreen() {
         </Card>
       )}
 
-      {/* Monthly summary */}
+      {/* Monthly summary — Income & Spent open the matching transactions */}
       {accounts.length > 0 && (
         <div className="grid grid-cols-3 gap-3">
-          <MiniCard label="Income" value={fmt0(roll.income)} />
-          <MiniCard label="Spent" value={fmt0(roll.spend)} />
+          <MiniCard
+            label="Income"
+            value={fmt0(roll.income)}
+            onClick={() => router.push(`/activity?type=income&month=${month}`)}
+          />
+          <MiniCard
+            label="Spent"
+            value={fmt0(roll.spend)}
+            onClick={() => router.push(`/activity?type=spending&month=${month}`)}
+          />
           <MiniCard
             label="Leftover"
             value={fmt0(income - roll.spend)}
@@ -127,6 +161,7 @@ export function HomeScreen() {
             const planPct =
               b === "needs" ? budget.plan_needs : b === "wants" ? budget.plan_wants : budget.plan_savings;
             const actual = roll.byBucket[b];
+            const actualPct = roll.spend > 0 ? Math.round((actual / roll.spend) * 100) : 0;
             return (
               <div key={b} className="flex items-center justify-between text-sm">
                 <span className="flex items-center gap-2">
@@ -134,7 +169,9 @@ export function HomeScreen() {
                   <span style={{ color: "var(--color-text)" }}>{BUCKETS[b].label}</span>
                 </span>
                 <span style={{ color: "var(--color-muted)" }}>
-                  {fmt(actual)} <span style={{ color: "var(--color-faint)" }}>· plan {planPct}%</span>
+                  {fmt0(actual)}{" "}
+                  <span style={{ color: "var(--color-text)", fontWeight: 600 }}>{actualPct}%</span>
+                  <span style={{ color: "var(--color-faint)" }}> / plan {planPct}%</span>
                 </span>
               </div>
             );
@@ -243,15 +280,25 @@ function MiniCard({
   label,
   value,
   accent,
+  onClick,
 }: {
   label: string;
   value: string;
   accent?: string;
+  onClick?: () => void;
 }) {
+  const Tag = onClick ? "button" : "div";
   return (
-    <Card className="p-3">
-      <p className="text-[11px]" style={{ color: "var(--color-faint)" }}>
+    <Tag
+      onClick={onClick}
+      className={`p-3 rounded-[16px] border text-left w-full ${onClick ? "active:opacity-70 transition-opacity" : ""}`}
+      style={{ background: "var(--color-surface)", borderColor: "var(--color-hairline)" }}
+    >
+      <p className="text-[11px] flex items-center gap-0.5" style={{ color: "var(--color-faint)" }}>
         {label}
+        {onClick && (
+          <span className="material-symbols-outlined" style={{ fontSize: 12 }}>chevron_right</span>
+        )}
       </p>
       <p
         className="font-figure text-base font-bold mt-0.5"
@@ -259,6 +306,6 @@ function MiniCard({
       >
         {value}
       </p>
-    </Card>
+    </Tag>
   );
 }
