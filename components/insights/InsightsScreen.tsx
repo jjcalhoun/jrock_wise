@@ -94,7 +94,7 @@ export function InsightsScreen() {
       </div>
 
       {/* Gauge */}
-      <Card className="p-4 flex justify-center">
+      <Card className="px-3 pt-3 pb-2">
         <Gauge segments={gaugeSegments} spent={roll.spend} budget={gaugeBudget} />
       </Card>
 
