@@ -82,7 +82,11 @@ export function ReviewFlow({ onClose }: { onClose: () => void }) {
   const empty = queue.length === 0;
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col" style={{ background: "var(--color-canvas)" }}>
+    <div className="fixed inset-0 z-50 flex justify-center scrim">
+      <div
+        className="w-full max-w-[430px] h-full flex flex-col"
+        style={{ background: "var(--color-canvas)" }}
+      >
       {/* header */}
       <div className="flex items-center justify-between px-4 py-4 border-b" style={{ borderColor: "var(--color-hairline)" }}>
         <button onClick={onClose} style={{ color: "var(--color-muted)" }}>
@@ -236,6 +240,7 @@ export function ReviewFlow({ onClose }: { onClose: () => void }) {
           </Button>
         </div>
       )}
+      </div>
 
       {showPicker && (
         <CategoryPicker
