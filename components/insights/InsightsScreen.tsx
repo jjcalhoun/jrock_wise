@@ -14,6 +14,7 @@ import { Card } from "@/components/ui/Card";
 import { ProgressBar } from "@/components/ui/ProgressBar";
 import { Gauge } from "@/components/insights/Gauge";
 import { CategoryDetail } from "@/components/insights/CategoryDetail";
+import { GaugeLoader } from "@/components/ui/GaugeLoader";
 import type { BucketType, Category } from "@/lib/types";
 
 function addMonth(key: string, delta: number): string {
@@ -23,7 +24,7 @@ function addMonth(key: string, delta: number): string {
 }
 
 export function InsightsScreen() {
-  const { data: transactions = [] } = useTransactions();
+  const { data: transactions = [], isLoading } = useTransactions();
   const { data: categories = [] } = useCategories();
   const { data: budget } = useBudget();
   const { data: categoryBudgets = {} } = useCategoryBudgets();
@@ -60,6 +61,8 @@ export function InsightsScreen() {
 
   const income = budget?.income ?? 0;
   const available = isCurrent ? income - roll.spend : roll.income - roll.spend;
+
+  if (isLoading) return <GaugeLoader />;
 
   return (
     <main className="p-4 space-y-5">

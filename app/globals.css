@@ -84,3 +84,12 @@ html, body {
 .scrim {
   background: rgba(0, 0, 0, 0.6);
 }
+
+/* Petal-gauge loading animation: segments pulse in sequence. */
+@keyframes petalPulse {
+  0%, 100% { opacity: 0.2; }
+  50% { opacity: 1; }
+}
+.petal-pulse {
+  animation: petalPulse 1.1s ease-in-out infinite;
+}
