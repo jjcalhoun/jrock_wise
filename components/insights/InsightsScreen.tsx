@@ -1,12 +1,13 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   useTransactions,
   useCategories,
   useBudget,
   useCategoryBudgets,
 } from "@/hooks/useSupabaseData";
+import { useTxnWindow } from "@/components/providers";
 import { rollup } from "@/lib/aggregations";
 import { fmt, fmt0, monthLabel, currentMonthKey } from "@/lib/format";
 import { BUCKETS } from "@/lib/buckets";
@@ -28,12 +29,18 @@ export function InsightsScreen() {
   const { data: budget } = useBudget();
   const { data: categoryBudgets = {} } = useCategoryBudgets();
 
+  const { ensureSince } = useTxnWindow();
   const thisMonth = currentMonthKey();
   const [month, setMonth] = useState(thisMonth);
   const [detail, setDetail] = useState<Category | null>(null);
 
   const isCurrent = month === thisMonth;
   const canGoForward = month < thisMonth;
+
+  // the category detail shows a 7-month history, so load 6 months before too
+  useEffect(() => {
+    ensureSince(`${addMonth(month, -6)}-01`);
+  }, [month, ensureSince]);
 
   const roll = useMemo(() => rollup(transactions, month), [transactions, month]);
   const categoryById = useMemo(

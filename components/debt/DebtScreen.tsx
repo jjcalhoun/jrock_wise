@@ -7,8 +7,9 @@ import {
   useBudget,
   useSettings,
   useUpdateSettings,
+  useAccountBalances,
 } from "@/hooks/useSupabaseData";
-import { allBalances, rollup } from "@/lib/aggregations";
+import { rollup } from "@/lib/aggregations";
 import { planPayoff, type DebtInput, type DebtStrategy } from "@/lib/debt";
 import { LIABILITY_TYPES } from "@/lib/buckets";
 import { fmt, fmt0, currentMonthKey } from "@/lib/format";
@@ -30,12 +31,8 @@ export function DebtScreen() {
   const { data: transactions = [] } = useTransactions();
   const { data: budget } = useBudget();
   const { data: settings } = useSettings();
+  const { data: balances = {} } = useAccountBalances();
   const updateSettings = useUpdateSettings();
-
-  const balances = useMemo(
-    () => allBalances(accounts, transactions),
-    [accounts, transactions],
-  );
 
   const debts: DebtInput[] = useMemo(
     () =>

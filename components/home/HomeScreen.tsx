@@ -1,14 +1,16 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   useAccounts,
   useCategories,
   useTransactions,
   useBudget,
+  useAccountBalances,
 } from "@/hooks/useSupabaseData";
-import { rollup, allBalances } from "@/lib/aggregations";
+import { useTxnWindow } from "@/components/providers";
+import { rollup } from "@/lib/aggregations";
 import { fmt0, fmt, currentMonthKey, monthLabel } from "@/lib/format";
 
 function addMonth(key: string, delta: number): string {
@@ -32,6 +34,8 @@ export function HomeScreen() {
   const { data: categories = [] } = useCategories();
   const { data: transactions = [], isLoading: lt } = useTransactions();
   const { data: budget } = useBudget();
+  const { data: balances = {} } = useAccountBalances();
+  const { ensureSince } = useTxnWindow();
   const [sheet, setSheet] = useState<"account" | "txn" | null>(null);
   const [editTxn, setEditTxn] = useState<Transaction | null>(null);
   const [showReview, setShowReview] = useState(false);
@@ -40,15 +44,15 @@ export function HomeScreen() {
   const [month, setMonth] = useState(thisMonth);
   const isCurrent = month === thisMonth;
   const canGoForward = month < thisMonth;
+
+  // make sure the selected month is loaded
+  useEffect(() => ensureSince(`${month}-01`), [month, ensureSince]);
+
   const categoryById = useMemo(
     () => Object.fromEntries(categories.map((c) => [c.id, c])),
     [categories],
   );
 
-  const balances = useMemo(
-    () => allBalances(accounts, transactions),
-    [accounts, transactions],
-  );
   const netCash = accounts.reduce((s, a) => s + (balances[a.id] ?? 0), 0);
 
   const roll = useMemo(() => rollup(transactions, month), [transactions, month]);
