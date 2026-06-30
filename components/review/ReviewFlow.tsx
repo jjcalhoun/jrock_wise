@@ -7,7 +7,7 @@ import {
   useAccounts,
   useReviewTransaction,
 } from "@/hooks/useSupabaseData";
-import { CategoryPicker, CategoryField } from "@/components/transactions/CategoryPicker";
+import { CategoryGrid } from "@/components/transactions/CategoryGrid";
 import { Button } from "@/components/ui/Button";
 import { Chip } from "@/components/ui/Chip";
 import { BUCKETS } from "@/lib/buckets";
@@ -28,7 +28,6 @@ export function ReviewFlow({ onClose }: { onClose: () => void }) {
   }, [unreviewed, queue.length]);
 
   const [index, setIndex] = useState(0);
-  const [showPicker, setShowPicker] = useState(false);
 
   const txn = queue[index];
   const inflow = txn ? txn.amount > 0 : false;
@@ -52,7 +51,6 @@ export function ReviewFlow({ onClose }: { onClose: () => void }) {
     ? ["income", "refund", "transfer"]
     : ["expense", "transfer"];
   const needsCategory = type === "expense" || type === "refund";
-  const selectedCategory = categories.find((c) => c.id === categoryId);
   const otherAccounts = accounts.filter((a) => a.id !== txn?.account_id);
 
   function pickCategory(id: string, defaultBucket: BucketType) {
@@ -158,29 +156,31 @@ export function ReviewFlow({ onClose }: { onClose: () => void }) {
               </div>
             </div>
 
-            {/* category + bucket */}
+            {/* bucket (above) + category grid (inline) */}
             {needsCategory && (
               <>
                 <div>
                   <p className="text-xs font-medium mb-2" style={{ color: "var(--color-muted)" }}>
+                    Bucket
+                  </p>
+                  <div className="flex gap-2">
+                    {(Object.keys(BUCKETS) as BucketType[]).map((b) => (
+                      <Chip key={b} active={bucket === b} color={BUCKETS[b].color} onClick={() => setBucket(b)}>
+                        {BUCKETS[b].label}
+                      </Chip>
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <p className="text-xs font-medium mb-2" style={{ color: "var(--color-muted)" }}>
                     Category
                   </p>
-                  <CategoryField category={selectedCategory} onOpen={() => setShowPicker(true)} />
+                  <CategoryGrid
+                    categories={categories}
+                    selectedId={categoryId}
+                    onPick={(c) => pickCategory(c.id, c.bucket)}
+                  />
                 </div>
-                {categoryId && (
-                  <div>
-                    <p className="text-xs font-medium mb-2" style={{ color: "var(--color-muted)" }}>
-                      Bucket
-                    </p>
-                    <div className="flex gap-2">
-                      {(Object.keys(BUCKETS) as BucketType[]).map((b) => (
-                        <Chip key={b} active={bucket === b} color={BUCKETS[b].color} onClick={() => setBucket(b)}>
-                          {BUCKETS[b].label}
-                        </Chip>
-                      ))}
-                    </div>
-                  </div>
-                )}
               </>
             )}
 
@@ -241,14 +241,6 @@ export function ReviewFlow({ onClose }: { onClose: () => void }) {
         </div>
       )}
       </div>
-
-      {showPicker && (
-        <CategoryPicker
-          selectedId={categoryId}
-          onPick={(c) => pickCategory(c.id, c.bucket)}
-          onClose={() => setShowPicker(false)}
-        />
-      )}
     </div>
   );
 }

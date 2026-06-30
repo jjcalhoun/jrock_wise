@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Sheet } from "@/components/ui/Sheet";
 import { useCategories } from "@/hooks/useSupabaseData";
+import { CategoryGrid } from "@/components/transactions/CategoryGrid";
 import type { Category } from "@/lib/types";
 
 /** A tappable field that shows the chosen category and opens the picker. */
@@ -65,6 +66,7 @@ export function CategoryPicker({ selectedId, onPick, onClose }: Props) {
   return (
     <Sheet title="Choose Category" onClose={onClose}>
       <div className="px-5 py-4 space-y-4">
+        {/* Tap to search — no auto-focus so the keyboard doesn't pop up. */}
         <div
           className="flex items-center gap-2 px-3 py-2 rounded-xl border"
           style={{ background: "var(--color-surface)", borderColor: "var(--color-hairline)" }}
@@ -73,7 +75,6 @@ export function CategoryPicker({ selectedId, onPick, onClose }: Props) {
             search
           </span>
           <input
-            autoFocus
             placeholder="Search categories"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
@@ -82,39 +83,14 @@ export function CategoryPicker({ selectedId, onPick, onClose }: Props) {
           />
         </div>
 
-        <div className="grid grid-cols-4 gap-3">
-          {filtered.map((c) => {
-            const active = c.id === selectedId;
-            return (
-              <button
-                key={c.id}
-                onClick={() => {
-                  onPick(c);
-                  onClose();
-                }}
-                className="flex flex-col items-center gap-1.5"
-              >
-                <span
-                  className="flex items-center justify-center w-full aspect-square rounded-2xl"
-                  style={{
-                    background: "var(--color-surface)",
-                    outline: active ? `2px solid ${c.color}` : "1px solid var(--color-hairline)",
-                  }}
-                >
-                  <span className="material-symbols-outlined" style={{ fontSize: 26, color: c.color }}>
-                    {c.icon}
-                  </span>
-                </span>
-                <span
-                  className="text-[11px] text-center leading-tight"
-                  style={{ color: active ? "var(--color-text)" : "var(--color-muted)" }}
-                >
-                  {c.name}
-                </span>
-              </button>
-            );
-          })}
-        </div>
+        <CategoryGrid
+          categories={filtered}
+          selectedId={selectedId}
+          onPick={(c) => {
+            onPick(c);
+            onClose();
+          }}
+        />
       </div>
     </Sheet>
   );
