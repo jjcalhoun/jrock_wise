@@ -64,6 +64,17 @@ export function useClaimSetupToken() {
   });
 }
 
+/** List accounts for an already-claimed connection (to map it later). */
+export function useConnectionAccounts() {
+  return useMutation({
+    mutationFn: (connectionId: string) =>
+      postJson<{ connectionId: string; accounts: ClaimedAccount[] }>(
+        "/api/simplefin/accounts",
+        { connectionId },
+      ),
+  });
+}
+
 export interface MappingInput {
   simplefin_account_id: string;
   account_id: string;
