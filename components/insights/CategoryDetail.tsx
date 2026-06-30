@@ -5,6 +5,7 @@ import { Sheet } from "@/components/ui/Sheet";
 import { rollup, monthKey } from "@/lib/aggregations";
 import { fmt, fmt0, shortDate, monthLabel } from "@/lib/format";
 import { useSetCategoryBudget } from "@/hooks/useSupabaseData";
+import { TransactionEditor } from "@/components/transactions/TransactionEditor";
 import type { Category, Transaction } from "@/lib/types";
 
 interface Props {
@@ -25,6 +26,7 @@ export function CategoryDetail({
   onClose,
 }: Props) {
   const setBudget = useSetCategoryBudget();
+  const [editTxn, setEditTxn] = useState<Transaction | null>(null);
   const [budget, setBudgetInput] = useState(monthlyTarget ? String(monthlyTarget) : "");
   useEffect(() => {
     setBudgetInput(monthlyTarget ? String(monthlyTarget) : "");
@@ -185,7 +187,11 @@ export function CategoryDetail({
               {monthTxns.map((t) => {
                 const split = (t.splits ?? []).find((s) => s.category_id === category.id);
                 return (
-                  <div key={t.id} className="flex items-center justify-between py-1.5 text-sm">
+                  <button
+                    key={t.id}
+                    onClick={() => setEditTxn(t)}
+                    className="w-full flex items-center justify-between py-1.5 text-sm text-left active:opacity-70"
+                  >
                     <span style={{ color: "var(--color-text)" }}>{t.merchant ?? "Transaction"}</span>
                     <span className="flex items-center gap-2">
                       <span className="font-figure" style={{ color: "var(--color-text)" }}>
@@ -194,14 +200,21 @@ export function CategoryDetail({
                       <span className="text-xs" style={{ color: "var(--color-faint)" }}>
                         {shortDate(t.date)}
                       </span>
+                      <span className="material-symbols-outlined" style={{ fontSize: 16, color: "var(--color-faint)" }}>
+                        chevron_right
+                      </span>
                     </span>
-                  </div>
+                  </button>
                 );
               })}
             </div>
           )}
         </div>
       </div>
+
+      {editTxn && (
+        <TransactionEditor txn={editTxn} onClose={() => setEditTxn(null)} />
+      )}
     </Sheet>
   );
 }

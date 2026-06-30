@@ -18,15 +18,15 @@ interface Props {
    grows with its spend, and a neutral "remaining" wedge fills the rest of the
    budget so the arc is always complete. A thin baseline arc separates the
    gauge from the readout below. */
-const W = 320;
-const H = 176;
+const W = 360;
+const H = 210;
 const CX = W / 2;
-const CY = 150;
-const RC = 84; // centerline radius
-const TH = 30; // wedge thickness
+const CY = 184;
+const RC = 106; // centerline radius
+const TH = 36; // wedge thickness
 const GAP = 4; // degrees of gap between wedges
 const MIN_CAT = 26; // min degrees per category so its icon stays visible
-const CORNER = 7; // wedge corner radius (rounded but not pill)
+const CORNER = 9; // wedge corner radius (rounded but not pill)
 const MAX_PETALS = 7;
 const REMAIN_COLOR = "#9A938A";
 
@@ -116,7 +116,7 @@ export function Gauge({ segments, spent, budget }: Props) {
                 left: pt(RC, w.mid)[0],
                 top: pt(RC, w.mid)[1],
                 transform: "translate(-50%, -50%)",
-                fontSize: 16,
+                fontSize: 20,
                 color: "#fff",
               }}
             >
@@ -125,11 +125,11 @@ export function Gauge({ segments, spent, budget }: Props) {
           ),
       )}
 
-      <div className="absolute inset-x-0 text-center" style={{ top: CY - 64 }}>
-        <p className="text-[11px]" style={{ color: "var(--color-muted)" }}>
+      <div className="absolute inset-x-0 text-center" style={{ top: CY - 70 }}>
+        <p className="text-xs" style={{ color: "var(--color-muted)" }}>
           Spent
         </p>
-        <p className="font-figure text-[26px] font-bold leading-tight" style={{ color: "var(--color-text)" }}>
+        <p className="font-figure text-[32px] font-bold leading-tight" style={{ color: "var(--color-text)" }}>
           {fmt0(spent)}
         </p>
         <p className="text-[11px]" style={{ color: "var(--color-faint)" }}>
