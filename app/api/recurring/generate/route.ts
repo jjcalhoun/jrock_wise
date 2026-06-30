@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { generateRecurring } from "@/lib/recurring";
+import { accrueInterest } from "@/lib/interest";
 
 export const runtime = "nodejs";
 
@@ -15,7 +16,11 @@ export async function POST() {
 
   try {
     const result = await generateRecurring(supabase, user.id);
-    return NextResponse.json(result);
+    const interest = await accrueInterest(supabase, user.id);
+    return NextResponse.json({
+      inserted: result.inserted + interest.inserted,
+      errors: [...result.errors, ...interest.errors],
+    });
   } catch (e) {
     return NextResponse.json(
       { error: e instanceof Error ? e.message : "Generate failed" },

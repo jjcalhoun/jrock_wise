@@ -3,7 +3,7 @@ export type TransactionType = "expense" | "income" | "transfer" | "refund";
 export type BucketType = "needs" | "wants" | "savings";
 export type ThemeMode = "system" | "light" | "dark";
 export type DebtStrategy = "avalanche" | "snowball";
-export type TransactionSource = "manual" | "csv" | "sync" | "recurring";
+export type TransactionSource = "manual" | "csv" | "sync" | "recurring" | "interest";
 
 export interface Account {
   id: string;
@@ -16,6 +16,7 @@ export interface Account {
   apr: number;
   color?: string | null;
   sort_order: number;
+  statement_day?: number | null; // liability accounts: day interest posts
   live_balance?: number | null; // SimpleFIN live balance for linked accounts
   live_balance_at?: string | null;
   created_at: string;
