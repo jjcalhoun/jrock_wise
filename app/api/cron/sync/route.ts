@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { syncUser } from "@/lib/simplefinSync";
 import { generateRecurring } from "@/lib/recurring";
+import { accrueInterest } from "@/lib/interest";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -18,24 +19,30 @@ export async function GET(request: Request) {
 
   const supabase = createAdminClient();
 
-  // Distinct users with a SimpleFIN connection and/or recurring rules.
-  const [{ data: conns, error: cErr }, { data: rules, error: rErr }] = await Promise.all([
-    supabase.from("simplefin_connections").select("user_id"),
-    supabase.from("recurring_rules").select("user_id").eq("active", true),
-  ]);
+  // Distinct users with a SimpleFIN connection, recurring rules, or an
+  // interest-bearing liability account.
+  const [{ data: conns, error: cErr }, { data: rules, error: rErr }, { data: liab, error: lErr }] =
+    await Promise.all([
+      supabase.from("simplefin_connections").select("user_id"),
+      supabase.from("recurring_rules").select("user_id").eq("active", true),
+      supabase.from("accounts").select("user_id").in("type", ["credit", "loan"]).gt("apr", 0),
+    ]);
   if (cErr) return NextResponse.json({ error: cErr.message }, { status: 500 });
   if (rErr) return NextResponse.json({ error: rErr.message }, { status: 500 });
+  if (lErr) return NextResponse.json({ error: lErr.message }, { status: 500 });
 
   const userIds = [
     ...new Set([
       ...(conns ?? []).map((c) => c.user_id as string),
       ...(rules ?? []).map((r) => r.user_id as string),
+      ...(liab ?? []).map((a) => a.user_id as string),
     ]),
   ];
 
   let inserted = 0;
   let balancesUpdated = 0;
   let recurringInserted = 0;
+  let interestInserted = 0;
   const errors: string[] = [];
   for (const userId of userIds) {
     try {
@@ -53,6 +60,13 @@ export async function GET(request: Request) {
     } catch (e) {
       errors.push(e instanceof Error ? e.message : `recurring failed for ${userId}`);
     }
+    try {
+      const acc = await accrueInterest(supabase, userId);
+      interestInserted += acc.inserted;
+      errors.push(...acc.errors);
+    } catch (e) {
+      errors.push(e instanceof Error ? e.message : `interest failed for ${userId}`);
+    }
   }
 
   return NextResponse.json({
@@ -60,6 +74,7 @@ export async function GET(request: Request) {
     inserted,
     balancesUpdated,
     recurringInserted,
+    interestInserted,
     errors,
   });
 }
