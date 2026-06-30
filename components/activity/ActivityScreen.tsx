@@ -5,6 +5,7 @@ import { useSearchParams, useRouter } from "next/navigation";
 import {
   useTransactions,
   useCategories,
+  useDeleteTransactions,
 } from "@/hooks/useSupabaseData";
 import { useTxnWindow } from "@/components/providers";
 import { TxnTile } from "@/components/transactions/TxnTile";
@@ -34,6 +35,28 @@ export function ActivityScreen() {
   const [showNew, setShowNew] = useState(false);
   const [showReview, setShowReview] = useState(false);
   const [editTxn, setEditTxn] = useState<Transaction | null>(null);
+  const [selectMode, setSelectMode] = useState(false);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const deleteTxns = useDeleteTransactions();
+
+  function toggleSelected(id: string) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+  function exitSelect() {
+    setSelectMode(false);
+    setSelected(new Set());
+  }
+  async function deleteSelected() {
+    if (selected.size === 0) return;
+    if (!confirm(`Delete ${selected.size} transaction${selected.size === 1 ? "" : "s"}? This can't be undone.`)) return;
+    await deleteTxns.mutateAsync([...selected]);
+    exitSelect();
+  }
 
   const years = useMemo(() => {
     const cur = new Date().getFullYear();
@@ -113,6 +136,15 @@ export function ActivityScreen() {
           <Button size="sm" variant="secondary" onClick={() => setShowNew(true)}>
             + New
           </Button>
+          {selectMode ? (
+            <Button size="sm" variant="secondary" onClick={exitSelect}>
+              Cancel
+            </Button>
+          ) : (
+            <Button size="sm" variant="secondary" onClick={() => setSelectMode(true)}>
+              Select
+            </Button>
+          )}
         </div>
       </div>
 
@@ -176,14 +208,58 @@ export function ActivityScreen() {
         </p>
       ) : (
         <div className="grid grid-cols-3 gap-3">
-          {filtered.map((t) => (
-            <TxnTile
-              key={t.id}
-              txn={t}
-              categoryById={categoryById}
-              onClick={() => setEditTxn(t)}
-            />
-          ))}
+          {filtered.map((t) => {
+            const isSel = selected.has(t.id);
+            return (
+              <div key={t.id} className="relative">
+                <TxnTile
+                  txn={t}
+                  categoryById={categoryById}
+                  onClick={() => (selectMode ? toggleSelected(t.id) : setEditTxn(t))}
+                />
+                {selectMode && (
+                  <span
+                    className="absolute top-1.5 right-1.5 w-5 h-5 rounded-full flex items-center justify-center pointer-events-none"
+                    style={{
+                      background: isSel ? "var(--color-primary)" : "rgba(0,0,0,0.35)",
+                      border: isSel ? "none" : "1.5px solid #fff",
+                    }}
+                  >
+                    {isSel && (
+                      <span className="material-symbols-outlined" style={{ fontSize: 14, color: "#fff" }}>
+                        check
+                      </span>
+                    )}
+                  </span>
+                )}
+                {selectMode && isSel && (
+                  <span
+                    className="absolute inset-0 rounded-[12px] pointer-events-none"
+                    style={{ boxShadow: "0 0 0 2px var(--color-primary)" }}
+                  />
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {selectMode && (
+        <div
+          className="fixed bottom-20 left-1/2 -translate-x-1/2 z-40 flex items-center gap-3 px-4 py-2.5 rounded-full shadow-lg"
+          style={{ background: "var(--color-elevated)", border: "1px solid var(--color-hairline)" }}
+        >
+          <span className="text-sm" style={{ color: "var(--color-muted)" }}>
+            {selected.size} selected
+          </span>
+          <Button
+            size="sm"
+            onClick={deleteSelected}
+            disabled={selected.size === 0 || deleteTxns.isPending}
+            style={{ background: "var(--color-danger)", color: "#fff" }}
+          >
+            {deleteTxns.isPending ? "Deleting…" : "Delete"}
+          </Button>
         </div>
       )}
 
