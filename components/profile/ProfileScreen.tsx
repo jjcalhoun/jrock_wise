@@ -15,9 +15,10 @@ import { CategoryManager } from "@/components/settings/CategoryManager";
 import { ImportWizard } from "@/components/import/ImportWizard";
 import { ImportStartDateEditor } from "@/components/settings/ImportStartDateEditor";
 import { ConnectionsManager } from "@/components/settings/ConnectionsManager";
+import { DeleteAllTransactions } from "@/components/settings/DeleteAllTransactions";
 import type { Account, ThemeMode } from "@/lib/types";
 
-type Sheet = "budget" | "categories" | "import" | "importDate" | "connections" | null;
+type Sheet = "budget" | "categories" | "import" | "importDate" | "connections" | "deleteAll" | null;
 
 export function ProfileScreen() {
   const router = useRouter();
@@ -99,6 +100,7 @@ export function ProfileScreen() {
           <SettingRow icon="account_balance" label="Bank connections" onClick={() => setSheet("connections")} />
           <SettingRow icon="upload_file" label="Import CSV" onClick={() => setSheet("import")} />
           <SettingRow icon="event" label="Import start date" onClick={() => setSheet("importDate")} />
+          <SettingRow icon="delete_sweep" label="Delete all transactions" onClick={() => setSheet("deleteAll")} />
         </Card>
       </section>
 
@@ -131,6 +133,7 @@ export function ProfileScreen() {
       {sheet === "connections" && <ConnectionsManager onClose={() => setSheet(null)} />}
       {sheet === "import" && <ImportWizard onClose={() => setSheet(null)} />}
       {sheet === "importDate" && <ImportStartDateEditor onClose={() => setSheet(null)} />}
+      {sheet === "deleteAll" && <DeleteAllTransactions onClose={() => setSheet(null)} />}
     </main>
   );
 }

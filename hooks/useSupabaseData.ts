@@ -271,6 +271,43 @@ export function useDeleteTransaction() {
   });
 }
 
+/** Delete several transactions at once (splits cascade). */
+export function useDeleteTransactions() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (ids: string[]) => {
+      if (ids.length === 0) return;
+      const { error } = await supabase.from("transactions").delete().in("id", ids);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["transactions"] });
+      qc.invalidateQueries({ queryKey: ["accounts"] });
+      qc.invalidateQueries({ queryKey: ["account_balances"] });
+    },
+  });
+}
+
+/** Delete every transaction for the signed-in user (splits cascade). */
+export function useDeleteAllTransactions() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async () => {
+      const user_id = await currentUserId();
+      const { error } = await supabase
+        .from("transactions")
+        .delete()
+        .eq("user_id", user_id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["transactions"] });
+      qc.invalidateQueries({ queryKey: ["accounts"] });
+      qc.invalidateQueries({ queryKey: ["account_balances"] });
+    },
+  });
+}
+
 export interface ReviewInput {
   id: string;
   type: TransactionType;
