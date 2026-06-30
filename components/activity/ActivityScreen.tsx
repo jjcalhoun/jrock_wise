@@ -10,6 +10,7 @@ import { TxnTile } from "@/components/transactions/TxnTile";
 import { NewTransaction } from "@/components/transactions/NewTransaction";
 import { TransactionEditor } from "@/components/transactions/TransactionEditor";
 import { ReviewFlow } from "@/components/review/ReviewFlow";
+import { FilterSheet, EMPTY_FILTERS, activeFilterCount, type ActivityFilters } from "@/components/activity/FilterSheet";
 import { Chip } from "@/components/ui/Chip";
 import { Input } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
@@ -25,9 +26,18 @@ export function ActivityScreen() {
   const { data: categories = [] } = useCategories();
   const [query, setQuery] = useState("");
   const [bucket, setBucket] = useState<BucketType | null>(null);
+  const [filters, setFilters] = useState<ActivityFilters>(EMPTY_FILTERS);
+  const [showFilters, setShowFilters] = useState(false);
   const [showNew, setShowNew] = useState(false);
   const [showReview, setShowReview] = useState(false);
   const [editTxn, setEditTxn] = useState<Transaction | null>(null);
+
+  const years = useMemo(() => {
+    const set = new Set<number>();
+    for (const t of transactions) set.add(Number(t.date.slice(0, 4)));
+    return [...set].sort((a, b) => b - a);
+  }, [transactions]);
+  const filterCount = activeFilterCount(filters);
 
   // deep-link filters from the Home Income/Spent tiles
   const typeParam = params.get("type"); // "income" | "spending"
@@ -47,20 +57,26 @@ export function ActivityScreen() {
 
   const filtered = useMemo(() => {
     return transactions.filter((t) => {
+      // deep-link filters (from Home)
       if (monthParam && monthKey(t.date) !== monthParam) return false;
       if (typeParam === "income" && t.type !== "income") return false;
       if (typeParam === "spending" && t.type !== "expense" && t.type !== "refund") return false;
+      // search + bucket
       if (query) {
         const hay = `${t.merchant ?? ""} ${t.description ?? ""}`.toLowerCase();
         if (!hay.includes(query.toLowerCase())) return false;
       }
-      if (bucket) {
-        const splits = t.splits ?? [];
-        if (!splits.some((s) => s.bucket === bucket)) return false;
-      }
+      if (bucket && !(t.splits ?? []).some((s) => s.bucket === bucket)) return false;
+      // filter sheet
+      if (filters.type !== "all" && t.type !== filters.type) return false;
+      if (filters.categoryId && !(t.splits ?? []).some((s) => s.category_id === filters.categoryId)) return false;
+      if (filters.year && Number(t.date.slice(0, 4)) !== filters.year) return false;
+      if (filters.month && Number(t.date.slice(5, 7)) !== filters.month) return false;
+      if (filters.from && t.date < filters.from) return false;
+      if (filters.to && t.date > filters.to) return false;
       return true;
     });
-  }, [transactions, query, bucket, typeParam, monthParam]);
+  }, [transactions, query, bucket, typeParam, monthParam, filters]);
 
   return (
     <main className="p-4 space-y-4">
@@ -103,7 +119,18 @@ export function ActivityScreen() {
         </button>
       )}
 
-      <div className="flex gap-2">
+      <div className="flex items-center gap-2 flex-wrap">
+        <button
+          onClick={() => setShowFilters(true)}
+          className="inline-flex items-center gap-1 px-3 py-1.5 rounded-[9999px] text-xs font-semibold"
+          style={{
+            background: filterCount > 0 ? "var(--color-primary)" : "var(--color-chip-bg)",
+            color: filterCount > 0 ? "#fff" : "var(--color-muted)",
+          }}
+        >
+          <span className="material-symbols-outlined" style={{ fontSize: 15 }}>tune</span>
+          Filters{filterCount > 0 ? ` · ${filterCount}` : ""}
+        </button>
         {(Object.keys(BUCKETS) as BucketType[]).map((b) => (
           <Chip
             key={b}
@@ -114,6 +141,15 @@ export function ActivityScreen() {
             {BUCKETS[b].label}
           </Chip>
         ))}
+        {filterCount > 0 && (
+          <button
+            onClick={() => setFilters(EMPTY_FILTERS)}
+            className="text-xs font-semibold"
+            style={{ color: "var(--color-muted)" }}
+          >
+            Clear
+          </button>
+        )}
       </div>
 
       {isLoading ? (
@@ -139,6 +175,15 @@ export function ActivityScreen() {
         </div>
       )}
 
+      {showFilters && (
+        <FilterSheet
+          filters={filters}
+          categories={categories}
+          years={years}
+          onApply={setFilters}
+          onClose={() => setShowFilters(false)}
+        />
+      )}
       {showNew && <NewTransaction onClose={() => setShowNew(false)} />}
       {showReview && <ReviewFlow onClose={() => setShowReview(false)} />}
       {editTxn && (

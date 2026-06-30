@@ -33,14 +33,24 @@ export function TxnTile({ txn, categoryById, onClick }: Props) {
     txn.merchant ||
     (txn.type === "transfer" ? "Transfer" : firstCat?.name ?? "Uncategorized");
 
+  // Reviewed → solid border in the accent color; unreviewed → dashed grey.
+  const accent =
+    txn.type === "transfer"
+      ? "var(--color-transfer)"
+      : txn.type === "income" || txn.type === "refund"
+        ? "var(--color-positive)"
+        : firstCat?.color ?? "var(--color-faint)";
+
   return (
     <button
       type="button"
       onClick={onClick}
-      className="rounded-[12px] border p-3 flex flex-col gap-2 text-left w-full active:opacity-70 transition-opacity"
+      className="rounded-[12px] p-3 flex flex-col gap-2 text-left w-full active:opacity-70 transition-opacity"
       style={{
         background: "var(--color-surface)",
-        borderColor: "var(--color-hairline)",
+        border: txn.reviewed
+          ? `1.5px solid ${accent}`
+          : "1.5px dashed var(--color-faint)",
       }}
     >
       <div className="flex items-center justify-between">
