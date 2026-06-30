@@ -68,7 +68,18 @@ export async function fetchAccounts(
   if (opts.pending) url.searchParams.set("pending", "1");
   if (opts.balancesOnly) url.searchParams.set("balances-only", "1");
 
-  const res = await fetch(url, { cache: "no-store" });
+  // fetch() refuses URLs with embedded credentials, so move SimpleFIN's
+  // user:pass@ into an HTTP Basic auth header and strip them from the URL.
+  const username = decodeURIComponent(url.username);
+  const password = decodeURIComponent(url.password);
+  url.username = "";
+  url.password = "";
+  const headers: Record<string, string> = {};
+  if (username || password) {
+    headers.Authorization = `Basic ${Buffer.from(`${username}:${password}`).toString("base64")}`;
+  }
+
+  const res = await fetch(url, { cache: "no-store", headers });
   if (!res.ok) {
     throw new Error(`SimpleFIN fetch failed (${res.status})`);
   }
