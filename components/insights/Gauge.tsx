@@ -14,19 +14,19 @@ interface Props {
   budget: number;
 }
 
-/* The half-circle is divided into proportional wedges: each category's width
-   grows with its spend, and a neutral "remaining" wedge fills the rest of the
-   budget so the arc is always complete. A thin baseline arc separates the
-   gauge from the readout below. */
-const W = 360;
-const H = 210;
-const CX = W / 2;
-const CY = 184;
-const RC = 106; // centerline radius
-const TH = 36; // wedge thickness
+/* The half-circle is divided into proportional wedges (each category's width
+   grows with its spend; a neutral "remaining" wedge fills the rest of the
+   budget). Everything — wedges, icons, and the readout — lives in one SVG with
+   a viewBox, so the whole gauge scales to fill its container width. */
+const VB_W = 360; // viewBox units
+const VB_H = 222;
+const CX = VB_W / 2;
+const CY = 196;
+const RC = 156; // centerline radius
+const TH = 42; // wedge thickness
 const GAP = 4; // degrees of gap between wedges
 const MIN_CAT = 26; // min degrees per category so its icon stays visible
-const CORNER = 9; // wedge corner radius (rounded but not pill)
+const CORNER = 10; // wedge corner radius
 const MAX_PETALS = 7;
 const REMAIN_COLOR = "#9A938A";
 
@@ -93,46 +93,49 @@ export function Gauge({ segments, spent, budget }: Props) {
     return { d: wedgePath(aH - GAP / 2, aL - GAP / 2), color: s.color, icon: s.icon, mid };
   });
 
-  // thin baseline arc just inside the ring
   const tR = Ri - 3;
   const baseline = `M ${f(pt(tR, 180))} A ${tR} ${tR} 0 0 1 ${f(pt(tR, 0))}`;
 
+  const pct = (v: number, total: number) => `${(v / total) * 100}%`;
+
   return (
-    <div className="relative" style={{ width: W, height: H }}>
-      <svg width={W} height={H} className="absolute inset-0">
+    <div className="relative w-full">
+      {/* wedges scale with the container via viewBox */}
+      <svg width="100%" viewBox={`0 0 ${VB_W} ${VB_H}`} style={{ display: "block" }}>
         <path d={baseline} fill="none" stroke="var(--color-hairline)" strokeWidth={2.5} />
         {wedges.map((w, i) => (
           <path key={i} d={w.d} fill={w.color} />
         ))}
       </svg>
 
-      {wedges.map(
-        (w, i) =>
-          w.icon && (
-            <span
-              key={i}
-              className="material-symbols-outlined absolute"
-              style={{
-                left: pt(RC, w.mid)[0],
-                top: pt(RC, w.mid)[1],
-                transform: "translate(-50%, -50%)",
-                fontSize: 20,
-                color: "#fff",
-              }}
-            >
-              {w.icon}
-            </span>
-          ),
+      {/* category icons — real HTML icon spans, positioned as % so they scale */}
+      {wedges.map((w, i) =>
+        w.icon ? (
+          <span
+            key={`ic-${i}`}
+            className="material-symbols-outlined absolute"
+            style={{
+              left: pct(pt(RC, w.mid)[0], VB_W),
+              top: pct(pt(RC, w.mid)[1], VB_H),
+              transform: "translate(-50%, -50%)",
+              fontSize: 24,
+              color: "#fff",
+            }}
+          >
+            {w.icon}
+          </span>
+        ) : null,
       )}
 
-      <div className="absolute inset-x-0 text-center" style={{ top: CY - 70 }}>
+      {/* center readout */}
+      <div className="absolute inset-x-0 text-center" style={{ top: pct(CY - 92, VB_H) }}>
         <p className="text-xs" style={{ color: "var(--color-muted)" }}>
           Spent
         </p>
-        <p className="font-figure text-[32px] font-bold leading-tight" style={{ color: "var(--color-text)" }}>
+        <p className="font-figure text-[34px] font-bold leading-tight" style={{ color: "var(--color-text)" }}>
           {fmt0(spent)}
         </p>
-        <p className="text-[11px]" style={{ color: "var(--color-faint)" }}>
+        <p className="text-xs" style={{ color: "var(--color-faint)" }}>
           of {fmt0(budget)} budget
         </p>
       </div>
