@@ -186,6 +186,7 @@ export interface TransactionUpdate {
   amount: number; // signed
   merchant?: string | null;
   type: TransactionType;
+  transfer_account_id?: string | null; // transfer only
   notes?: string | null;
   splits?: SplitInput[]; // replaces the existing splits
 }

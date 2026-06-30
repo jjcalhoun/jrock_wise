@@ -10,7 +10,7 @@ import {
   useCategories,
   useAddTransaction,
 } from "@/hooks/useSupabaseData";
-import { CategoryPicker, CategoryField } from "@/components/transactions/CategoryPicker";
+import { CategoryGrid } from "@/components/transactions/CategoryGrid";
 import { BUCKETS } from "@/lib/buckets";
 import type { TransactionType, BucketType } from "@/lib/types";
 
@@ -32,11 +32,9 @@ export function NewTransaction({ onClose }: Props) {
   const [accountId, setAccountId] = useState<string>("");
   const [categoryId, setCategoryId] = useState<string>("");
   const [bucket, setBucket] = useState<BucketType>("needs");
-  const [showPicker, setShowPicker] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const needsCategory = type === "expense";
-  const selectedCategory = categories.find((c) => c.id === categoryId);
 
   // Picking a category pre-fills the bucket with that category's default,
   // which the user can then override below.
@@ -146,35 +144,28 @@ export function NewTransaction({ onClose }: Props) {
           </div>
         </div>
 
-        {/* category (expense only) */}
+        {/* bucket (above) + category grid (expense only) */}
         {needsCategory && (
-          <div>
-            <p className="text-xs font-medium mb-2" style={{ color: "var(--color-muted)" }}>
-              Category
-            </p>
-            <CategoryField category={selectedCategory} onOpen={() => setShowPicker(true)} />
-          </div>
-        )}
-
-        {/* bucket — pre-filled from the category, override here */}
-        {needsCategory && categoryId && (
-          <div>
-            <p className="text-xs font-medium mb-2" style={{ color: "var(--color-muted)" }}>
-              Bucket
-            </p>
-            <div className="flex gap-2">
-              {(Object.keys(BUCKETS) as BucketType[]).map((b) => (
-                <Chip
-                  key={b}
-                  active={bucket === b}
-                  color={BUCKETS[b].color}
-                  onClick={() => setBucket(b)}
-                >
-                  {BUCKETS[b].label}
-                </Chip>
-              ))}
+          <>
+            <div>
+              <p className="text-xs font-medium mb-2" style={{ color: "var(--color-muted)" }}>
+                Bucket
+              </p>
+              <div className="flex gap-2">
+                {(Object.keys(BUCKETS) as BucketType[]).map((b) => (
+                  <Chip key={b} active={bucket === b} color={BUCKETS[b].color} onClick={() => setBucket(b)}>
+                    {BUCKETS[b].label}
+                  </Chip>
+                ))}
+              </div>
             </div>
-          </div>
+            <div>
+              <p className="text-xs font-medium mb-2" style={{ color: "var(--color-muted)" }}>
+                Category
+              </p>
+              <CategoryGrid categories={categories} selectedId={categoryId} onPick={(c) => pickCategory(c.id, c.bucket)} />
+            </div>
+          </>
         )}
 
         {error && (
@@ -187,14 +178,6 @@ export function NewTransaction({ onClose }: Props) {
           {add.isPending ? "Saving…" : "Add transaction"}
         </Button>
       </div>
-
-      {showPicker && (
-        <CategoryPicker
-          selectedId={categoryId}
-          onPick={(c) => pickCategory(c.id, c.bucket)}
-          onClose={() => setShowPicker(false)}
-        />
-      )}
     </Sheet>
   );
 }

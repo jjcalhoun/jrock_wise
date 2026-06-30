@@ -11,7 +11,7 @@ import {
   useUpdateTransaction,
   useDeleteTransaction,
 } from "@/hooks/useSupabaseData";
-import { CategoryPicker, CategoryField } from "@/components/transactions/CategoryPicker";
+import { CategoryGrid } from "@/components/transactions/CategoryGrid";
 import { BUCKETS } from "@/lib/buckets";
 import type { Transaction, TransactionType, BucketType } from "@/lib/types";
 
@@ -20,6 +20,13 @@ interface Props {
   onClose: () => void;
 }
 
+const TYPE_LABEL: Record<TransactionType, string> = {
+  expense: "Expense",
+  income: "Income",
+  transfer: "Transfer",
+  refund: "Refund",
+};
+
 export function TransactionEditor({ txn, onClose }: Props) {
   const { data: accounts = [] } = useAccounts();
   const { data: categories = [] } = useCategories();
@@ -27,7 +34,6 @@ export function TransactionEditor({ txn, onClose }: Props) {
   const del = useDeleteTransaction();
 
   const firstSplit = (txn.splits ?? [])[0];
-  const isEditableType = txn.type === "expense" || txn.type === "income";
 
   const [type, setType] = useState<TransactionType>(txn.type);
   const [amount, setAmount] = useState(String(Math.abs(txn.amount)));
@@ -36,16 +42,23 @@ export function TransactionEditor({ txn, onClose }: Props) {
   const [accountId, setAccountId] = useState(txn.account_id);
   const [categoryId, setCategoryId] = useState(firstSplit?.category_id ?? "");
   const [bucket, setBucket] = useState<BucketType>(firstSplit?.bucket ?? "needs");
+  const [transferAccountId, setTransferAccountId] = useState(txn.transfer_account_id ?? "");
   const [notes, setNotes] = useState(txn.notes ?? "");
-  const [showPicker, setShowPicker] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const needsCategory = type === "expense" || type === "refund";
-  const selectedCategory = categories.find((c) => c.id === categoryId);
+  const inflow = txn.amount > 0;
+  const otherAccounts = accounts.filter((a) => a.id !== accountId);
 
   function pickCategory(id: string, defaultBucket: BucketType) {
     setCategoryId(id);
     setBucket(defaultBucket);
+  }
+
+  function signedAmount(num: number): number {
+    if (type === "expense") return -Math.abs(num);
+    if (type === "transfer") return txn.amount < 0 ? -Math.abs(num) : Math.abs(num);
+    return Math.abs(num); // income / refund
   }
 
   async function save() {
@@ -55,9 +68,7 @@ export function TransactionEditor({ txn, onClose }: Props) {
     if (!accountId) return setError("Choose an account.");
     if (needsCategory && !categoryId) return setError("Choose a category.");
 
-    // Outflows (expense) are negative; inflows (income/refund) positive.
-    const signed = type === "expense" ? -Math.abs(num) : Math.abs(num);
-
+    const signed = signedAmount(num);
     try {
       await update.mutateAsync({
         id: txn.id,
@@ -66,6 +77,7 @@ export function TransactionEditor({ txn, onClose }: Props) {
         amount: signed,
         merchant: merchant.trim() || null,
         type,
+        transfer_account_id: type === "transfer" ? transferAccountId || null : null,
         notes: notes.trim() || null,
         splits: needsCategory && categoryId
           ? [{ category_id: categoryId, bucket, amount: signed }]
@@ -90,30 +102,30 @@ export function TransactionEditor({ txn, onClose }: Props) {
   return (
     <Sheet title="Edit transaction" onClose={onClose}>
       <div className="px-5 py-4 space-y-4">
-        {!isEditableType && (
-          <p
-            className="text-xs rounded-lg px-3 py-2"
-            style={{ background: "var(--color-chip-bg)", color: "var(--color-muted)" }}
-          >
-            This is a {txn.type}. You can edit its details below or delete it.
+        {/* type — fully editable across all four types */}
+        <div>
+          <p className="text-xs font-medium mb-2" style={{ color: "var(--color-muted)" }}>
+            Type
           </p>
-        )}
-
-        {/* type (expense / income) */}
-        {isEditableType && (
-          <div className="flex gap-2">
-            <Chip active={type === "expense"} onClick={() => setType("expense")}>
-              Expense
-            </Chip>
-            <Chip
-              active={type === "income"}
-              color="var(--color-positive)"
-              onClick={() => setType("income")}
-            >
-              Income
-            </Chip>
+          <div className="flex flex-wrap gap-2">
+            {(["expense", "income", "transfer", "refund"] as TransactionType[]).map((t) => (
+              <Chip
+                key={t}
+                active={type === t}
+                color={
+                  t === "transfer"
+                    ? "var(--color-transfer)"
+                    : t === "income" || t === "refund"
+                      ? "var(--color-positive)"
+                      : "var(--color-primary)"
+                }
+                onClick={() => setType(t)}
+              >
+                {TYPE_LABEL[t]}
+              </Chip>
+            ))}
           </div>
-        )}
+        </div>
 
         <Input
           label="Amount"
@@ -144,31 +156,50 @@ export function TransactionEditor({ txn, onClose }: Props) {
           </div>
         </div>
 
-        {/* category + bucket */}
+        {/* bucket (above) + category grid — expense/refund */}
         {needsCategory && (
           <>
             <div>
               <p className="text-xs font-medium mb-2" style={{ color: "var(--color-muted)" }}>
+                Bucket
+              </p>
+              <div className="flex gap-2">
+                {(Object.keys(BUCKETS) as BucketType[]).map((b) => (
+                  <Chip key={b} active={bucket === b} color={BUCKETS[b].color} onClick={() => setBucket(b)}>
+                    {BUCKETS[b].label}
+                  </Chip>
+                ))}
+              </div>
+            </div>
+            <div>
+              <p className="text-xs font-medium mb-2" style={{ color: "var(--color-muted)" }}>
                 Category
               </p>
-              <CategoryField category={selectedCategory} onOpen={() => setShowPicker(true)} />
+              <CategoryGrid categories={categories} selectedId={categoryId} onPick={(c) => pickCategory(c.id, c.bucket)} />
             </div>
+          </>
+        )}
 
-            {categoryId && (
-              <div>
-                <p className="text-xs font-medium mb-2" style={{ color: "var(--color-muted)" }}>
-                  Bucket
-                </p>
-                <div className="flex gap-2">
-                  {(Object.keys(BUCKETS) as BucketType[]).map((b) => (
-                    <Chip key={b} active={bucket === b} color={BUCKETS[b].color} onClick={() => setBucket(b)}>
-                      {BUCKETS[b].label}
-                    </Chip>
-                  ))}
-                </div>
+        {/* transfer pairing */}
+        {type === "transfer" && (
+          <div>
+            <p className="text-xs font-medium mb-2" style={{ color: "var(--color-muted)" }}>
+              {inflow ? "Transferred from" : "Transferred to"}
+            </p>
+            {otherAccounts.length === 0 ? (
+              <p className="text-sm" style={{ color: "var(--color-faint)" }}>
+                Add another account to pair transfers.
+              </p>
+            ) : (
+              <div className="flex flex-wrap gap-2">
+                {otherAccounts.map((a) => (
+                  <Chip key={a.id} active={transferAccountId === a.id} color="var(--color-transfer)" onClick={() => setTransferAccountId(a.id)}>
+                    {a.name}
+                  </Chip>
+                ))}
               </div>
             )}
-          </>
+          </div>
         )}
 
         <Input
@@ -193,14 +224,6 @@ export function TransactionEditor({ txn, onClose }: Props) {
           </Button>
         </div>
       </div>
-
-      {showPicker && (
-        <CategoryPicker
-          selectedId={categoryId}
-          onPick={(c) => pickCategory(c.id, c.bucket)}
-          onClose={() => setShowPicker(false)}
-        />
-      )}
     </Sheet>
   );
 }
