@@ -34,8 +34,6 @@ export function TransactionEditor({ txn, onClose }: Props) {
   const del = useDeleteTransaction();
 
   const firstSplit = (txn.splits ?? [])[0];
-  // Expense/income can switch between each other; transfer/refund stay fixed.
-  const canSwitchType = txn.type === "expense" || txn.type === "income";
 
   const [type, setType] = useState<TransactionType>(txn.type);
   const [amount, setAmount] = useState(String(Math.abs(txn.amount)));
@@ -104,23 +102,29 @@ export function TransactionEditor({ txn, onClose }: Props) {
   return (
     <Sheet title="Edit transaction" onClose={onClose}>
       <div className="px-5 py-4 space-y-4">
-        {/* type — switchable for expense/income, locked for transfer/refund */}
+        {/* type — fully editable across all four types */}
         <div>
           <p className="text-xs font-medium mb-2" style={{ color: "var(--color-muted)" }}>
             Type
           </p>
-          {canSwitchType ? (
-            <div className="flex gap-2">
-              <Chip active={type === "expense"} onClick={() => setType("expense")}>Expense</Chip>
-              <Chip active={type === "income"} color="var(--color-positive)" onClick={() => setType("income")}>
-                Income
+          <div className="flex flex-wrap gap-2">
+            {(["expense", "income", "transfer", "refund"] as TransactionType[]).map((t) => (
+              <Chip
+                key={t}
+                active={type === t}
+                color={
+                  t === "transfer"
+                    ? "var(--color-transfer)"
+                    : t === "income" || t === "refund"
+                      ? "var(--color-positive)"
+                      : "var(--color-primary)"
+                }
+                onClick={() => setType(t)}
+              >
+                {TYPE_LABEL[t]}
               </Chip>
-            </div>
-          ) : (
-            <Chip active color={type === "transfer" ? "var(--color-transfer)" : "var(--color-positive)"}>
-              {TYPE_LABEL[type]}
-            </Chip>
-          )}
+            ))}
+          </div>
         </div>
 
         <Input
