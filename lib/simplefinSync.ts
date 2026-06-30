@@ -1,10 +1,14 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { randomUUID } from "node:crypto";
 import { decrypt } from "@/lib/crypto";
 import { fetchAccounts } from "@/lib/simplefin";
 import { guessCategory } from "@/lib/autocategorize";
-import type { Category } from "@/lib/types";
+import { classifyTxn } from "@/lib/classifyTxn";
+import { pairTransfers, type PairItem } from "@/lib/pairTransfers";
+import type { Account, Category, TransactionType } from "@/lib/types";
 
 const DAYS_90 = 90 * 24 * 60 * 60;
+const PAIR_WINDOW_DAYS = 5;
 
 export interface SyncResult {
   inserted: number;
@@ -12,23 +16,41 @@ export interface SyncResult {
   errors: string[];
 }
 
+interface Candidate {
+  externalId: string;
+  accountId: string;
+  date: string;
+  amount: number;
+  description: string;
+  type: TransactionType;
+  splitCategoryId: string | null;
+  splitBucket: string | null;
+  autoReview: boolean;
+}
+
 /* Core SimpleFIN sync for one user. Works with any Supabase client whose queries
    resolve to this user's rows — the session client (RLS scopes automatically) or
    the service-role admin client used by the cron (we scope by userId here).
-   Pulls 90 days, updates live balances on mapped accounts, and inserts new
-   transactions (unreviewed) with an optional best-guess category. */
+   Pulls 90 days, updates live balances, classifies new transactions, pairs the
+   two sides of transfers (so card payments don't double-count), and inserts. */
 export async function syncUser(
   supabase: SupabaseClient,
   userId: string,
   opts: { connectionId?: string } = {},
 ): Promise<SyncResult> {
-  const [{ data: settings }, { data: categories }, { data: maps }] = await Promise.all([
-    supabase.from("settings").select("autocategorize_imports").eq("user_id", userId).single(),
-    supabase.from("categories").select("*").eq("user_id", userId).eq("is_archived", false),
-    supabase.from("simplefin_account_map").select("*").eq("user_id", userId),
-  ]);
+  const [{ data: settings }, { data: categories }, { data: maps }, { data: accounts }] =
+    await Promise.all([
+      supabase.from("settings").select("autocategorize_imports").eq("user_id", userId).single(),
+      supabase.from("categories").select("*").eq("user_id", userId).eq("is_archived", false),
+      supabase.from("simplefin_account_map").select("*").eq("user_id", userId),
+      supabase.from("accounts").select("id, type").eq("user_id", userId),
+    ]);
   const autocategorize = settings?.autocategorize_imports ?? true;
   const cats = (categories ?? []) as Category[];
+  const feesCat = cats.find((c) => c.name === "Fees");
+  const typeFor = new Map(
+    (accounts ?? []).map((a) => [a.id as string, a.type as Account["type"]]),
+  );
   const accountFor = new Map(
     (maps ?? []).map((m) => [m.simplefin_account_id as string, m.account_id as string]),
   );
@@ -42,9 +64,11 @@ export async function syncUser(
   if (connErr) throw new Error(connErr.message);
 
   const startDate = Math.floor(Date.now() / 1000) - DAYS_90;
-  let inserted = 0;
   let balancesUpdated = 0;
   const errors: string[] = [];
+
+  // ---- Phase 1: fetch + classify into candidates (no inserts yet) ----
+  const candidates: Candidate[] = [];
 
   for (const conn of connections ?? []) {
     let accessUrl: string;
@@ -68,7 +92,7 @@ export async function syncUser(
       const ourAccountId = accountFor.get(acct.id);
       if (!ourAccountId) continue; // unmapped — skip until the user maps it
 
-      // 1. Live balance (decision 1: trust SimpleFIN's balance for linked accts).
+      // Live balance (decision 1: trust SimpleFIN's balance for linked accts).
       const { error: balErr } = await supabase
         .from("accounts")
         .update({
@@ -79,7 +103,6 @@ export async function syncUser(
         .eq("user_id", userId);
       if (!balErr) balancesUpdated++;
 
-      // 2. New transactions (dedupe on external_id = simplefin:<id>).
       const incoming = acct.transactions ?? [];
       if (incoming.length === 0) continue;
 
@@ -96,43 +119,34 @@ export async function syncUser(
         if (seen.has(externalId)) continue;
         seen.add(externalId);
 
-        const amount = Number(t.amount);
         const description = t.payee || t.description || "Transaction";
-        const isExpense = amount < 0;
-        const guess = autocategorize && isExpense ? guessCategory(description, cats) : null;
+        const c = classifyTxn({
+          amount: Number(t.amount),
+          description,
+          accountType: typeFor.get(ourAccountId) ?? "checking",
+          accountBalance: Number(acct.balance),
+        });
 
-        const { data: txn, error: txnErr } = await supabase
-          .from("transactions")
-          .insert({
-            user_id: userId,
-            account_id: ourAccountId,
-            date: new Date(t.posted * 1000).toISOString().slice(0, 10),
-            amount,
-            description,
-            merchant: description,
-            type: isExpense ? "expense" : "income",
-            source: "sync",
-            external_id: externalId,
-            reviewed: false,
-          })
-          .select("id")
-          .single();
-        if (txnErr || !txn) {
-          errors.push(txnErr?.message ?? "Insert failed");
-          continue;
-        }
-        inserted++;
+        const splitCat =
+          c.type === "expense"
+            ? c.interest
+              ? feesCat ?? null
+              : autocategorize
+                ? guessCategory(description, cats)
+                : null
+            : null;
 
-        // Best-guess split for categorized expenses (signed, sums to parent).
-        if (guess) {
-          await supabase.from("transaction_splits").insert({
-            user_id: userId,
-            transaction_id: txn.id,
-            category_id: guess.id,
-            bucket: guess.bucket,
-            amount,
-          });
-        }
+        candidates.push({
+          externalId,
+          accountId: ourAccountId,
+          date: new Date(t.posted * 1000).toISOString().slice(0, 10),
+          amount: c.normalizedAmount,
+          description,
+          type: c.type,
+          splitCategoryId: splitCat?.id ?? null,
+          splitBucket: splitCat?.bucket ?? null,
+          autoReview: c.autoReview,
+        });
       }
     }
 
@@ -141,6 +155,103 @@ export async function syncUser(
       .update({ last_synced_at: new Date().toISOString() })
       .eq("id", conn.id)
       .eq("user_id", userId);
+  }
+
+  // ---- Phase 2: pair the two sides of transfers ----
+  // Include recently-synced existing rows so a counterpart that posted in an
+  // earlier sync can still be matched and converted.
+  const mappedIds = [...new Set(accountFor.values())];
+  const windowStart = candidates.reduce(
+    (min, c) => (c.date < min ? c.date : min),
+    new Date(Date.now() - (PAIR_WINDOW_DAYS + 1) * 86400000).toISOString().slice(0, 10),
+  );
+  const { data: recent } =
+    mappedIds.length > 0
+      ? await supabase
+          .from("transactions")
+          .select("id, account_id, date, amount, type")
+          .in("account_id", mappedIds)
+          .gte("date", windowStart)
+      : { data: [] };
+
+  const items: PairItem[] = [
+    ...candidates.map((c) => ({
+      id: c.externalId,
+      accountId: c.accountId,
+      date: c.date,
+      amount: c.amount,
+      type: c.type,
+    })),
+    ...((recent ?? []) as { id: string; account_id: string; date: string; amount: number; type: PairItem["type"] }[]).map(
+      (r) => ({ id: r.id, accountId: r.account_id, date: r.date, amount: Number(r.amount), type: r.type }),
+    ),
+  ];
+  const candidateKeys = new Set(candidates.map((c) => c.externalId));
+
+  // For each pair, record the counterpart + a shared group id keyed by item id.
+  const link = new Map<string, { counterAccount: string; group: string }>();
+  for (const { a, b } of pairTransfers(items, PAIR_WINDOW_DAYS)) {
+    const group = randomUUID();
+    link.set(a.id, { counterAccount: b.accountId, group });
+    link.set(b.id, { counterAccount: a.accountId, group });
+  }
+
+  // Convert any matched EXISTING rows into linked transfers (drop their splits).
+  for (const [id, l] of link) {
+    if (candidateKeys.has(id)) continue; // it's a new candidate, handled below
+    await supabase.from("transaction_splits").delete().eq("transaction_id", id);
+    await supabase
+      .from("transactions")
+      .update({
+        type: "transfer",
+        transfer_account_id: l.counterAccount,
+        transfer_group_id: l.group,
+        reviewed: true,
+      })
+      .eq("id", id)
+      .eq("user_id", userId);
+  }
+
+  // ---- Phase 3: insert new candidates ----
+  let inserted = 0;
+  for (const c of candidates) {
+    const l = link.get(c.externalId);
+    const isTransfer = !!l || c.type === "transfer";
+
+    const { data: txn, error: txnErr } = await supabase
+      .from("transactions")
+      .insert({
+        user_id: userId,
+        account_id: c.accountId,
+        date: c.date,
+        amount: c.amount,
+        description: c.description,
+        merchant: c.description,
+        type: isTransfer ? "transfer" : c.type,
+        transfer_account_id: l?.counterAccount ?? null,
+        transfer_group_id: l?.group ?? null,
+        source: "sync",
+        external_id: c.externalId,
+        reviewed: l ? true : c.autoReview,
+      })
+      .select("id")
+      .single();
+    if (txnErr || !txn) {
+      errors.push(txnErr?.message ?? "Insert failed");
+      continue;
+    }
+    inserted++;
+
+    // Split only for non-transfer expenses (paired rows become transfers).
+    if (!isTransfer && c.splitCategoryId && c.splitBucket) {
+      await supabase.from("transaction_splits").insert({
+        user_id: userId,
+        transaction_id: txn.id,
+        category_id: c.splitCategoryId,
+        bucket: c.splitBucket,
+        amount: c.amount,
+      });
+    }
   }
 
   return { inserted, balancesUpdated, errors };
