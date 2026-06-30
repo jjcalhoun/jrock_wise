@@ -9,6 +9,7 @@ import {
   useSimplefinConnections,
   useSimplefinMappings,
   useClaimSetupToken,
+  useConnectionAccounts,
   useMapAccounts,
   useSyncSimplefin,
   useDisconnectSimplefin,
@@ -32,6 +33,7 @@ export function ConnectionsManager({ onClose }: { onClose: () => void }) {
   const { data: mappings = [] } = useSimplefinMappings();
   const updateSettings = useUpdateSettings();
   const claim = useClaimSetupToken();
+  const connectionAccounts = useConnectionAccounts();
   const mapAccounts = useMapAccounts();
   const sync = useSyncSimplefin();
   const disconnect = useDisconnectSimplefin();
@@ -87,6 +89,18 @@ export function ConnectionsManager({ onClose }: { onClose: () => void }) {
       setNote(`Synced — imported ${res.inserted} transaction${res.inserted === 1 ? "" : "s"}.`);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not save mapping.");
+    }
+  }
+
+  async function onLinkExisting(connectionId: string) {
+    setError(null);
+    setNote(null);
+    try {
+      const res = await connectionAccounts.mutateAsync(connectionId);
+      setClaimed(res);
+      setPicks({});
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not load accounts.");
     }
   }
 
@@ -205,14 +219,24 @@ export function ConnectionsManager({ onClose }: { onClose: () => void }) {
                       Disconnect
                     </button>
                   </div>
-                  <Button
-                    variant="secondary"
-                    fullWidth
-                    onClick={() => onSync(c.id)}
-                    disabled={sync.isPending}
-                  >
-                    {sync.isPending ? "Syncing…" : "Sync now"}
-                  </Button>
+                  <div className="flex gap-2">
+                    <Button
+                      variant="secondary"
+                      fullWidth
+                      onClick={() => onLinkExisting(c.id)}
+                      disabled={connectionAccounts.isPending}
+                    >
+                      {connectionAccounts.isPending ? "Loading…" : linked.length > 0 ? "Edit links" : "Link accounts"}
+                    </Button>
+                    <Button
+                      variant="secondary"
+                      fullWidth
+                      onClick={() => onSync(c.id)}
+                      disabled={sync.isPending}
+                    >
+                      {sync.isPending ? "Syncing…" : "Sync now"}
+                    </Button>
+                  </div>
                 </div>
               );
             })}
