@@ -3,7 +3,7 @@ export type TransactionType = "expense" | "income" | "transfer" | "refund";
 export type BucketType = "needs" | "wants" | "savings";
 export type ThemeMode = "system" | "light" | "dark";
 export type DebtStrategy = "avalanche" | "snowball";
-export type TransactionSource = "manual" | "csv" | "sync";
+export type TransactionSource = "manual" | "csv" | "sync" | "recurring";
 
 export interface Account {
   id: string;
@@ -102,6 +102,32 @@ export interface Settings {
   debt_strategy: DebtStrategy;
   debt_extra: number;
   autocategorize_imports: boolean;
+  updated_at: string;
+}
+
+export type RecurringFrequency = "monthly" | "semimonthly" | "weekly" | "biweekly";
+
+export interface RecurringRule {
+  id: string;
+  user_id: string;
+  name: string;
+  account_id: string;
+  type: "expense" | "income" | "transfer";
+  amount: number; // signed
+  transfer_account_id?: string | null;
+  category_id?: string | null;
+  bucket?: BucketType | null;
+  frequency: RecurringFrequency;
+  day_of_month?: number | null;
+  day_of_month_2?: number | null;
+  weekday?: number | null;
+  interval: number;
+  start_date: string;
+  end_date?: string | null;
+  auto_review: boolean;
+  last_generated?: string | null;
+  active: boolean;
+  created_at: string;
   updated_at: string;
 }
 
