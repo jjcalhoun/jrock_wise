@@ -11,6 +11,8 @@ import {
   useDeleteAccount,
   type AccountInput,
 } from "@/hooks/useSupabaseData";
+import { useSimplefinMappings } from "@/hooks/useSimplefin";
+import { fmt } from "@/lib/format";
 import type { Account } from "@/lib/types";
 
 interface Props {
@@ -23,6 +25,8 @@ const todayISO = () => new Date().toISOString().slice(0, 10);
 export function AccountEditor({ account, onClose }: Props) {
   const upsert = useUpsertAccount();
   const del = useDeleteAccount();
+  const { data: mappings = [] } = useSimplefinMappings();
+  const linked = !!account && mappings.some((m) => m.account_id === account.id);
 
   const [name, setName] = useState(account?.name ?? "");
   const [type, setType] = useState<Account["type"]>(account?.type ?? "checking");
@@ -103,11 +107,17 @@ export function AccountEditor({ account, onClose }: Props) {
         <div className="flex gap-3">
           <div className="flex-1">
             <Input
-              label={isLiability ? "Amount owed" : "Starting balance"}
+              label={linked ? "Current balance" : isLiability ? "Amount owed" : "Starting balance"}
               placeholder="0.00"
               inputMode="decimal"
-              value={balance}
+              value={
+                linked
+                  ? fmt(account?.live_balance ?? account?.starting_balance ?? 0)
+                  : balance
+              }
               onChange={(e) => setBalance(e.target.value)}
+              disabled={linked}
+              style={linked ? { opacity: 0.55, cursor: "not-allowed" } : undefined}
             />
           </div>
           <div className="w-28">
@@ -121,6 +131,12 @@ export function AccountEditor({ account, onClose }: Props) {
             />
           </div>
         </div>
+        {linked && (
+          <p className="text-xs -mt-2 flex items-center gap-1" style={{ color: "var(--color-faint)" }}>
+            <span className="material-symbols-outlined" style={{ fontSize: 14 }}>sync</span>
+            Balance is updated automatically via SimpleFIN sync.
+          </p>
+        )}
 
         <Input
           label="Balance as of"
