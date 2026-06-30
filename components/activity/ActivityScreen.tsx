@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { useSearchParams, useRouter } from "next/navigation";
 import {
   useTransactions,
   useCategories,
@@ -13,9 +14,13 @@ import { Chip } from "@/components/ui/Chip";
 import { Input } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
 import { BUCKETS } from "@/lib/buckets";
+import { monthKey } from "@/lib/aggregations";
+import { monthLabel } from "@/lib/format";
 import type { BucketType, Transaction } from "@/lib/types";
 
 export function ActivityScreen() {
+  const params = useSearchParams();
+  const router = useRouter();
   const { data: transactions = [], isLoading } = useTransactions();
   const { data: categories = [] } = useCategories();
   const [query, setQuery] = useState("");
@@ -23,6 +28,15 @@ export function ActivityScreen() {
   const [showNew, setShowNew] = useState(false);
   const [showReview, setShowReview] = useState(false);
   const [editTxn, setEditTxn] = useState<Transaction | null>(null);
+
+  // deep-link filters from the Home Income/Spent tiles
+  const typeParam = params.get("type"); // "income" | "spending"
+  const monthParam = params.get("month"); // "YYYY-MM"
+  const hasDeepFilter = typeParam === "income" || typeParam === "spending";
+  const deepLabel =
+    typeParam === "income"
+      ? `Income${monthParam ? ` · ${monthLabel(monthParam)}` : ""}`
+      : `Spending${monthParam ? ` · ${monthLabel(monthParam)}` : ""}`;
 
   const unreviewedCount = transactions.filter((t) => !t.reviewed).length;
 
@@ -33,6 +47,9 @@ export function ActivityScreen() {
 
   const filtered = useMemo(() => {
     return transactions.filter((t) => {
+      if (monthParam && monthKey(t.date) !== monthParam) return false;
+      if (typeParam === "income" && t.type !== "income") return false;
+      if (typeParam === "spending" && t.type !== "expense" && t.type !== "refund") return false;
       if (query) {
         const hay = `${t.merchant ?? ""} ${t.description ?? ""}`.toLowerCase();
         if (!hay.includes(query.toLowerCase())) return false;
@@ -43,7 +60,7 @@ export function ActivityScreen() {
       }
       return true;
     });
-  }, [transactions, query, bucket]);
+  }, [transactions, query, bucket, typeParam, monthParam]);
 
   return (
     <main className="p-4 space-y-4">
@@ -74,6 +91,17 @@ export function ActivityScreen() {
         value={query}
         onChange={(e) => setQuery(e.target.value)}
       />
+
+      {hasDeepFilter && (
+        <button
+          onClick={() => router.push("/activity")}
+          className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-semibold"
+          style={{ background: "var(--color-primary)", color: "#fff" }}
+        >
+          {deepLabel}
+          <span className="material-symbols-outlined" style={{ fontSize: 14 }}>close</span>
+        </button>
+      )}
 
       <div className="flex gap-2">
         {(Object.keys(BUCKETS) as BucketType[]).map((b) => (
