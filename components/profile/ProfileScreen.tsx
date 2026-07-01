@@ -17,6 +17,7 @@ import { ImportStartDateEditor } from "@/components/settings/ImportStartDateEdit
 import { ConnectionsManager } from "@/components/settings/ConnectionsManager";
 import { DeleteAllTransactions } from "@/components/settings/DeleteAllTransactions";
 import { RecurringManager } from "@/components/settings/RecurringManager";
+import { InstallButton } from "@/components/pwa/InstallButton";
 import type { Account, ThemeMode } from "@/lib/types";
 
 type Sheet = "budget" | "categories" | "import" | "importDate" | "connections" | "recurring" | "deleteAll" | null;
@@ -119,6 +120,8 @@ export function ProfileScreen() {
           ))}
         </div>
       </section>
+
+      <InstallButton />
 
       <Button variant="secondary" fullWidth onClick={signOut}>
         Sign out

@@ -93,3 +93,7 @@ html, body {
 .petal-pulse {
   animation: petalPulse 1.1s ease-in-out infinite;
 }
+
+/* Safe-area insets for the installed PWA (notch / home indicator). */
+.pb-safe { padding-bottom: env(safe-area-inset-bottom); }
+.pt-safe { padding-top: env(safe-area-inset-top); }

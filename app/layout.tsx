@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { Providers } from "@/components/providers";
+import { RegisterSW } from "@/components/pwa/RegisterSW";
 
 export const metadata: Metadata = {
   title: "JRock_Wise",
@@ -15,6 +16,7 @@ export const viewport: Viewport = {
   initialScale: 1,
   maximumScale: 1,
   userScalable: false,
+  viewportFit: "cover", // let content extend under the notch/home bar; we pad with safe-area insets
 };
 
 export default function RootLayout({
@@ -35,8 +37,10 @@ export default function RootLayout({
           rel="stylesheet"
           href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200"
         />
+        <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
       </head>
       <body className="min-h-full" style={{ background: "var(--color-canvas)" }}>
+        <RegisterSW />
         <Providers>{children}</Providers>
       </body>
     </html>
