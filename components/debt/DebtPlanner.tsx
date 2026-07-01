@@ -189,6 +189,42 @@ export function DebtPlanner({
         </Card>
       </section>
 
+      {/* Payoff timeline */}
+      <section className="space-y-2">
+        <div className="flex items-center justify-between">
+          <h2 className="text-sm font-semibold" style={{ color: "var(--color-text)" }}>
+            Payoff timeline
+          </h2>
+          <span className="text-xs" style={{ color: "var(--color-faint)" }}>
+            debt-free in {monthsLabel(projection.debtFreeMonth)}
+          </span>
+        </div>
+        <Card className="divide-y" style={{ borderColor: "var(--color-hairline)" }}>
+          {projection.order.map((d, i) => (
+            <div key={d.id} className="flex items-center justify-between px-4 py-3">
+              <div className="flex items-center gap-3">
+                <span
+                  className="flex items-center justify-center w-7 h-7 rounded-full text-xs font-bold"
+                  style={{ background: `${DEBT_COLORS[i % DEBT_COLORS.length]}22`, color: DEBT_COLORS[i % DEBT_COLORS.length] }}
+                >
+                  {i + 1}
+                </span>
+                <div>
+                  <p className="text-sm font-medium" style={{ color: "var(--color-text)" }}>{d.name}</p>
+                  <p className="text-xs" style={{ color: "var(--color-faint)" }}>
+                    {d.apr}% APR · {fmt0(d.balance)}
+                  </p>
+                </div>
+              </div>
+              <div className="text-right">
+                <p className="text-sm font-figure" style={{ color: "var(--color-text)" }}>Month {d.monthsToClear}</p>
+                <p className="text-xs" style={{ color: "var(--color-muted)" }}>{monthsLabel(d.monthsToClear)}</p>
+              </div>
+            </div>
+          ))}
+        </Card>
+      </section>
+
       {/* Debt balances over time */}
       <section className="space-y-2">
         <h2 className="text-sm font-semibold" style={{ color: "var(--color-text)" }}>
@@ -247,42 +283,6 @@ export function DebtPlanner({
             <LegendSwatch color="#EF4444" label="Total debt" />
             <LegendSwatch color="#3B82F6" label="Net worth" />
           </div>
-        </Card>
-      </section>
-
-      {/* Payoff timeline */}
-      <section className="space-y-2">
-        <div className="flex items-center justify-between">
-          <h2 className="text-sm font-semibold" style={{ color: "var(--color-text)" }}>
-            Payoff timeline
-          </h2>
-          <span className="text-xs" style={{ color: "var(--color-faint)" }}>
-            debt-free in {monthsLabel(projection.debtFreeMonth)}
-          </span>
-        </div>
-        <Card className="divide-y" style={{ borderColor: "var(--color-hairline)" }}>
-          {projection.order.map((d, i) => (
-            <div key={d.id} className="flex items-center justify-between px-4 py-3">
-              <div className="flex items-center gap-3">
-                <span
-                  className="flex items-center justify-center w-7 h-7 rounded-full text-xs font-bold"
-                  style={{ background: `${DEBT_COLORS[i % DEBT_COLORS.length]}22`, color: DEBT_COLORS[i % DEBT_COLORS.length] }}
-                >
-                  {i + 1}
-                </span>
-                <div>
-                  <p className="text-sm font-medium" style={{ color: "var(--color-text)" }}>{d.name}</p>
-                  <p className="text-xs" style={{ color: "var(--color-faint)" }}>
-                    {d.apr}% APR · {fmt0(d.balance)}
-                  </p>
-                </div>
-              </div>
-              <div className="text-right">
-                <p className="text-sm font-figure" style={{ color: "var(--color-text)" }}>Month {d.monthsToClear}</p>
-                <p className="text-xs" style={{ color: "var(--color-muted)" }}>{monthsLabel(d.monthsToClear)}</p>
-              </div>
-            </div>
-          ))}
         </Card>
       </section>
 
