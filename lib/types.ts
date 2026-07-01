@@ -104,6 +104,7 @@ export interface Settings {
   theme_mode: ThemeMode;
   debt_strategy: DebtStrategy;
   debt_extra: number;
+  debt_surplus?: number | null; // editable surplus; null → 3-month average
   autocategorize_imports: boolean;
   investments_balance: number;
   investments_return: number;
