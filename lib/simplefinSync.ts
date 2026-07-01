@@ -23,6 +23,7 @@ interface Candidate {
   amount: number;
   description: string;
   type: TransactionType;
+  interest: boolean;
   splitCategoryId: string | null;
   splitBucket: string | null;
   autoReview: boolean;
@@ -141,6 +142,7 @@ export async function syncUser(
           amount: c.normalizedAmount,
           description,
           type: c.type,
+          interest: c.interest,
           splitCategoryId: splitCat?.id ?? null,
           splitBucket: splitCat?.bucket ?? null,
           autoReview: c.autoReview,
@@ -228,7 +230,7 @@ export async function syncUser(
         type: isTransfer ? "transfer" : c.type,
         transfer_account_id: l?.counterAccount ?? null,
         transfer_group_id: l?.group ?? null,
-        source: "sync",
+        source: c.interest && !isTransfer ? "interest" : "sync",
         external_id: c.externalId,
         reviewed: l ? true : c.autoReview,
       })

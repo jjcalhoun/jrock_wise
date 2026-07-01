@@ -19,6 +19,7 @@ import type { Transaction, TransactionType, BucketType } from "@/lib/types";
 interface Props {
   txn: Transaction;
   onClose: () => void;
+  inline?: boolean; // render the bare form (no Sheet) for the desktop side panel
 }
 
 const TYPE_LABEL: Record<TransactionType, string> = {
@@ -28,7 +29,7 @@ const TYPE_LABEL: Record<TransactionType, string> = {
   refund: "Refund",
 };
 
-export function TransactionEditor({ txn, onClose }: Props) {
+export function TransactionEditor({ txn, onClose, inline }: Props) {
   const { data: accounts = [] } = useAccounts();
   const { data: categories = [] } = useCategories();
   const update = useUpdateTransaction();
@@ -108,8 +109,7 @@ export function TransactionEditor({ txn, onClose }: Props) {
     }
   }
 
-  return (
-    <Sheet title="Edit transaction" onClose={onClose}>
+  const body = (
       <div className="px-5 py-4 space-y-4">
         {/* type — fully editable across all four types */}
         <div>
@@ -254,6 +254,12 @@ export function TransactionEditor({ txn, onClose }: Props) {
           </Button>
         </div>
       </div>
+  );
+
+  if (inline) return body;
+  return (
+    <Sheet title="Edit transaction" onClose={onClose}>
+      {body}
     </Sheet>
   );
 }

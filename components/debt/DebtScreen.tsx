@@ -10,6 +10,7 @@ import {
   useAccountBalances,
 } from "@/hooks/useSupabaseData";
 import { rollup } from "@/lib/aggregations";
+import { interestPaid, interestPaidByAccount } from "@/lib/interestPaid";
 import { type DebtStrategy } from "@/lib/debt";
 import { LIABILITY_TYPES } from "@/lib/buckets";
 import { fmt0, currentMonthKey, addMonth } from "@/lib/format";
@@ -57,6 +58,16 @@ export function DebtScreen() {
     const nets = [0, 1, 2].map((i) => income - rollup(transactions, addMonth(now, -i)).spend);
     return nets.reduce((a, b) => a + b, 0) / nets.length;
   }, [transactions, budget]);
+
+  const interest = useMemo(() => {
+    const now = currentMonthKey();
+    const yearStart = `${now.slice(0, 4)}-01-01`;
+    return {
+      month: interestPaid(transactions, `${now}-01`),
+      ytd: interestPaid(transactions, yearStart),
+      byAccount: interestPaidByAccount(transactions, yearStart),
+    };
+  }, [transactions]);
 
   const [strategy, setStrategy] = useState<DebtStrategy>("avalanche");
   useEffect(() => {
@@ -112,6 +123,39 @@ export function DebtScreen() {
               Snowball (smallest first)
             </Chip>
           </div>
+
+          {/* Interest paid — read-only, never counts toward the budget */}
+          {interest.ytd > 0 && (
+            <Card className="p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <p className="text-sm font-semibold" style={{ color: "var(--color-text)" }}>Interest paid</p>
+                <span className="text-xs" style={{ color: "var(--color-faint)" }}>informational · not in budget</span>
+              </div>
+              <div className="flex gap-8">
+                <div>
+                  <p className="text-xs" style={{ color: "var(--color-faint)" }}>This month</p>
+                  <p className="font-figure text-lg font-bold" style={{ color: "var(--color-danger)" }}>{fmt0(interest.month)}</p>
+                </div>
+                <div>
+                  <p className="text-xs" style={{ color: "var(--color-faint)" }}>Year to date</p>
+                  <p className="font-figure text-lg font-bold" style={{ color: "var(--color-danger)" }}>{fmt0(interest.ytd)}</p>
+                </div>
+              </div>
+              {liabilityAccounts.filter((a) => (interest.byAccount[a.id] ?? 0) > 0).length > 0 && (
+                <div className="pt-1 space-y-1 border-t" style={{ borderColor: "var(--color-hairline)" }}>
+                  {liabilityAccounts
+                    .filter((a) => (interest.byAccount[a.id] ?? 0) > 0)
+                    .sort((a, b) => (interest.byAccount[b.id] ?? 0) - (interest.byAccount[a.id] ?? 0))
+                    .map((a) => (
+                      <div key={a.id} className="flex items-center justify-between text-sm pt-1">
+                        <span style={{ color: "var(--color-muted)" }}>{a.name}</span>
+                        <span className="font-figure" style={{ color: "var(--color-text)" }}>{fmt0(interest.byAccount[a.id] ?? 0)} <span style={{ color: "var(--color-faint)" }}>YTD</span></span>
+                      </div>
+                    ))}
+                </div>
+              )}
+            </Card>
+          )}
 
           <DebtPlanner
             liabilityAccounts={liabilityAccounts}
