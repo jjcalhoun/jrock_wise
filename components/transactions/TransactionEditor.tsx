@@ -10,6 +10,7 @@ import {
   useCategories,
   useUpdateTransaction,
   useDeleteTransaction,
+  useResolveTransfer,
 } from "@/hooks/useSupabaseData";
 import { CategoryGrid } from "@/components/transactions/CategoryGrid";
 import { BUCKETS } from "@/lib/buckets";
@@ -32,6 +33,7 @@ export function TransactionEditor({ txn, onClose }: Props) {
   const { data: categories = [] } = useCategories();
   const update = useUpdateTransaction();
   const del = useDeleteTransaction();
+  const resolveTransfer = useResolveTransfer();
 
   const firstSplit = (txn.splits ?? [])[0];
 
@@ -43,6 +45,7 @@ export function TransactionEditor({ txn, onClose }: Props) {
   const [categoryId, setCategoryId] = useState(firstSplit?.category_id ?? "");
   const [bucket, setBucket] = useState<BucketType>(firstSplit?.bucket ?? "needs");
   const [transferAccountId, setTransferAccountId] = useState(txn.transfer_account_id ?? "");
+  const [countAsSavings, setCountAsSavings] = useState(txn.bucket === "savings");
   const [notes, setNotes] = useState(txn.notes ?? "");
   const [error, setError] = useState<string | null>(null);
 
@@ -68,6 +71,8 @@ export function TransactionEditor({ txn, onClose }: Props) {
     if (!accountId) return setError("Choose an account.");
     if (needsCategory && !categoryId) return setError("Choose a category.");
 
+    if (type === "transfer" && !transferAccountId) return setError("Choose the transfer account.");
+
     const signed = signedAmount(num);
     try {
       await update.mutateAsync({
@@ -83,6 +88,10 @@ export function TransactionEditor({ txn, onClose }: Props) {
           ? [{ category_id: categoryId, bucket, amount: signed }]
           : undefined,
       });
+      // For transfers, link the counterpart and set the savings designation.
+      if (type === "transfer" && transferAccountId) {
+        await resolveTransfer.mutateAsync({ id: txn.id, transfer_account_id: transferAccountId, countAsSavings });
+      }
       onClose();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not save transaction.");
@@ -193,11 +202,32 @@ export function TransactionEditor({ txn, onClose }: Props) {
             ) : (
               <div className="flex flex-wrap gap-2">
                 {otherAccounts.map((a) => (
-                  <Chip key={a.id} active={transferAccountId === a.id} color="var(--color-transfer)" onClick={() => setTransferAccountId(a.id)}>
+                  <Chip
+                    key={a.id}
+                    active={transferAccountId === a.id}
+                    color="var(--color-transfer)"
+                    onClick={() => {
+                      setTransferAccountId(a.id);
+                      setCountAsSavings(a.type === "savings");
+                    }}
+                  >
                     {a.name}
                   </Chip>
                 ))}
               </div>
+            )}
+            {transferAccountId && (
+              <label className="flex items-center justify-between mt-3">
+                <span className="text-sm" style={{ color: "var(--color-text)" }}>
+                  Count toward savings
+                </span>
+                <input
+                  type="checkbox"
+                  checked={countAsSavings}
+                  onChange={(e) => setCountAsSavings(e.target.checked)}
+                  style={{ accentColor: "var(--color-primary)" }}
+                />
+              </label>
             )}
           </div>
         )}

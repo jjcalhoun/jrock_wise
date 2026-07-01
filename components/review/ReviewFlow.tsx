@@ -6,6 +6,7 @@ import {
   useCategories,
   useAccounts,
   useReviewTransaction,
+  useResolveTransfer,
 } from "@/hooks/useSupabaseData";
 import { CategoryGrid } from "@/components/transactions/CategoryGrid";
 import { Button } from "@/components/ui/Button";
@@ -19,6 +20,7 @@ export function ReviewFlow({ onClose }: { onClose: () => void }) {
   const { data: categories = [] } = useCategories();
   const { data: accounts = [] } = useAccounts();
   const review = useReviewTransaction();
+  const resolveTransfer = useResolveTransfer();
 
   // snapshot the queue once so it stays stable as we review through it
   const [queue, setQueue] = useState<Transaction[]>([]);
@@ -37,6 +39,7 @@ export function ReviewFlow({ onClose }: { onClose: () => void }) {
   const [categoryId, setCategoryId] = useState("");
   const [bucket, setBucket] = useState<BucketType>("needs");
   const [transferAccountId, setTransferAccountId] = useState("");
+  const [countAsSavings, setCountAsSavings] = useState(false);
 
   // reset selections whenever the current transaction changes
   useEffect(() => {
@@ -45,7 +48,15 @@ export function ReviewFlow({ onClose }: { onClose: () => void }) {
     setCategoryId("");
     setBucket("needs");
     setTransferAccountId("");
+    setCountAsSavings(false);
   }, [txn]);
+
+  // Picking a transfer account defaults "count as savings" on when it's a
+  // savings account (overridable).
+  function pickTransferAccount(id: string) {
+    setTransferAccountId(id);
+    setCountAsSavings(accounts.find((a) => a.id === id)?.type === "savings");
+  }
 
   const typeOptions: TransactionType[] = inflow
     ? ["income", "refund", "transfer"]
@@ -65,14 +76,22 @@ export function ReviewFlow({ onClose }: { onClose: () => void }) {
 
   async function save() {
     if (!txn || !canSave) return;
-    await review.mutateAsync({
-      id: txn.id,
-      type,
-      transfer_account_id: type === "transfer" ? transferAccountId : null,
-      splits: needsCategory && categoryId
-        ? [{ category_id: categoryId, bucket, amount: txn.amount }]
-        : undefined,
-    });
+    if (type === "transfer") {
+      await resolveTransfer.mutateAsync({
+        id: txn.id,
+        transfer_account_id: transferAccountId,
+        countAsSavings,
+      });
+    } else {
+      await review.mutateAsync({
+        id: txn.id,
+        type,
+        transfer_account_id: null,
+        splits: needsCategory && categoryId
+          ? [{ category_id: categoryId, bucket, amount: txn.amount }]
+          : undefined,
+      });
+    }
     setIndex((i) => i + 1);
   }
 
@@ -197,12 +216,29 @@ export function ReviewFlow({ onClose }: { onClose: () => void }) {
                 ) : (
                   <div className="flex flex-wrap gap-2">
                     {otherAccounts.map((a) => (
-                      <Chip key={a.id} active={transferAccountId === a.id} color="var(--color-transfer)" onClick={() => setTransferAccountId(a.id)}>
+                      <Chip key={a.id} active={transferAccountId === a.id} color="var(--color-transfer)" onClick={() => pickTransferAccount(a.id)}>
                         {a.name}
                       </Chip>
                     ))}
                   </div>
                 )}
+                {transferAccountId && (
+                  <label className="flex items-center justify-between mt-3">
+                    <span className="text-sm" style={{ color: "var(--color-text)" }}>
+                      Count toward savings
+                    </span>
+                    <input
+                      type="checkbox"
+                      checked={countAsSavings}
+                      onChange={(e) => setCountAsSavings(e.target.checked)}
+                      style={{ accentColor: "var(--color-primary)" }}
+                    />
+                  </label>
+                )}
+                <p className="text-xs mt-2" style={{ color: "var(--color-faint)" }}>
+                  We'll link the matching transaction on the other account, so you
+                  only review this once.
+                </p>
               </div>
             )}
 
@@ -235,8 +271,8 @@ export function ReviewFlow({ onClose }: { onClose: () => void }) {
             Skip
           </button>
           <div className="flex-1" />
-          <Button onClick={save} disabled={!canSave || review.isPending}>
-            {review.isPending ? "Saving…" : "Save"}
+          <Button onClick={save} disabled={!canSave || review.isPending || resolveTransfer.isPending}>
+            {review.isPending || resolveTransfer.isPending ? "Saving…" : "Save"}
           </Button>
         </div>
       )}

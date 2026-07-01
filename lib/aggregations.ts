@@ -46,7 +46,16 @@ export function rollup(
       income += txn.amount;
       continue;
     }
-    if (txn.type === "transfer") continue; // balances only
+    if (txn.type === "transfer") {
+      // A designated transfer (e.g. into savings) counts once toward its bucket
+      // and as an allocation in spend; plain transfers are budget-neutral.
+      if (txn.bucket) {
+        const amt = Math.abs(txn.amount);
+        byBucket[txn.bucket] += amt;
+        spend += amt;
+      }
+      continue;
+    }
 
     // expense + refund: aggregate via splits
     for (const split of txn.splits ?? []) {
