@@ -34,7 +34,7 @@ interface Props {
   liabilityAccounts: Account[]; // credit/loan with balance owed
   debtBalances: Record<string, number>; // account_id → owed (positive)
   strategy: DebtStrategy;
-  monthlySurplus: number;
+  avgNet3: number; // 3-month average net available (default surplus)
   startChecking: number;
   startSavings: number;
   settings: Settings | null | undefined;
@@ -44,7 +44,7 @@ export function DebtPlanner({
   liabilityAccounts,
   debtBalances,
   strategy,
-  monthlySurplus,
+  avgNet3,
   startChecking,
   startSavings,
   settings,
@@ -53,18 +53,24 @@ export function DebtPlanner({
   const updateSettings = useUpdateSettings();
 
   // planner inputs (hydrated from settings)
+  const [surplus, setSurplus] = useState("");
+  const [extra, setExtra] = useState("");
   const [invBal, setInvBal] = useState("0");
   const [invRet, setInvRet] = useState("0");
   const [savingsPct, setSavingsPct] = useState(20);
   const [investPct, setInvestPct] = useState(0);
   useEffect(() => {
     if (!settings) return;
+    setSurplus(settings.debt_surplus != null ? String(settings.debt_surplus) : String(Math.round(avgNet3)));
+    setExtra(settings.debt_extra ? String(settings.debt_extra) : "");
     setInvBal(String(settings.investments_balance ?? 0));
     setInvRet(String(settings.investments_return ?? 0));
     setSavingsPct(settings.surplus_savings_pct ?? 20);
     setInvestPct(settings.surplus_investments_pct ?? 0);
-  }, [settings]);
+  }, [settings, avgNet3]);
   const extraDebtPct = Math.max(0, 100 - savingsPct - investPct);
+
+  const monthlySurplus = (parseFloat(surplus) || 0) + (parseFloat(extra) || 0);
 
   const debts: ProjDebt[] = useMemo(
     () =>
@@ -122,6 +128,67 @@ export function DebtPlanner({
 
   return (
     <div className="space-y-5">
+      {/* Surplus + allocation (top) */}
+      <section className="space-y-2">
+        <h2 className="text-sm font-semibold" style={{ color: "var(--color-text)" }}>Surplus allocation</h2>
+        <Card className="p-4 space-y-3">
+          <div className="flex gap-3">
+            <div className="flex-1">
+              <Input
+                label="Monthly surplus"
+                inputMode="decimal"
+                value={surplus}
+                onChange={(e) => setSurplus(e.target.value)}
+                onBlur={() => updateSettings.mutate({ debt_surplus: parseFloat(surplus) || 0 })}
+              />
+            </div>
+            <div className="flex-1">
+              <Input
+                label="Extra payment / mo"
+                inputMode="decimal"
+                placeholder="0"
+                value={extra}
+                onChange={(e) => setExtra(e.target.value)}
+                onBlur={() => updateSettings.mutate({ debt_extra: parseFloat(extra) || 0 })}
+              />
+            </div>
+          </div>
+          <p className="text-xs" style={{ color: "var(--color-faint)" }}>
+            Allocating {fmt0(monthlySurplus)}/mo — your surplus (defaults to the
+            3-month average net above) plus any extra payment.
+          </p>
+
+          <SplitSlider
+            label="To savings"
+            value={savingsPct}
+            color="#16A34A"
+            onChange={(v) => setSavingsPct(Math.min(v, 100 - investPct))}
+            onCommit={() => persistSplit(savingsPct, investPct)}
+          />
+          <SplitSlider
+            label="To investments"
+            value={investPct}
+            color="#8B5CF6"
+            onChange={(v) => setInvestPct(Math.min(v, 100 - savingsPct))}
+            onCommit={() => persistSplit(savingsPct, investPct)}
+          />
+          <div className="flex items-center justify-between">
+            <span className="text-sm" style={{ color: "var(--color-text)" }}>To extra debt</span>
+            <span className="text-sm font-figure font-bold" style={{ color: "var(--color-text)" }}>{extraDebtPct}%</span>
+          </div>
+          <div className="flex h-7 rounded-lg overflow-hidden text-[11px] font-semibold text-white">
+            {savingsPct > 0 && <div className="flex items-center justify-center" style={{ width: `${savingsPct}%`, background: "#16A34A" }}>{savingsPct}%</div>}
+            {investPct > 0 && <div className="flex items-center justify-center" style={{ width: `${investPct}%`, background: "#8B5CF6" }}>{investPct}%</div>}
+            {extraDebtPct > 0 && <div className="flex items-center justify-center" style={{ width: `${extraDebtPct}%`, background: "#EF4444" }}>{extraDebtPct}%</div>}
+          </div>
+          <p className="text-xs leading-relaxed" style={{ color: "var(--color-faint)" }}>
+            Freed-up minimums roll into the next-highest-APR debt. Your savings &amp;
+            investing percentages keep flowing, and once debt-free the freed money
+            redirects to savings.
+          </p>
+        </Card>
+      </section>
+
       {/* Debt balances over time */}
       <section className="space-y-2">
         <h2 className="text-sm font-semibold" style={{ color: "var(--color-text)" }}>
@@ -241,51 +308,6 @@ export function DebtPlanner({
               onBlur={() => updateSettings.mutate({ investments_return: parseFloat(invRet) || 0 })}
             />
           </div>
-        </Card>
-      </section>
-
-      {/* Surplus allocation */}
-      <section className="space-y-2">
-        <h2 className="text-sm font-semibold" style={{ color: "var(--color-text)" }}>Surplus allocation</h2>
-        <Card className="p-4 space-y-3">
-          <p className="text-xs" style={{ color: "var(--color-faint)" }}>
-            Splitting {fmt0(monthlySurplus)}/mo of surplus.
-          </p>
-          <SplitSlider
-            label="To savings"
-            value={savingsPct}
-            color="#16A34A"
-            onChange={(v) => {
-              const s = Math.min(v, 100 - investPct);
-              setSavingsPct(s);
-            }}
-            onCommit={() => persistSplit(savingsPct, investPct)}
-          />
-          <SplitSlider
-            label="To investments"
-            value={investPct}
-            color="#8B5CF6"
-            onChange={(v) => {
-              const iv = Math.min(v, 100 - savingsPct);
-              setInvestPct(iv);
-            }}
-            onCommit={() => persistSplit(savingsPct, investPct)}
-          />
-          <div className="flex items-center justify-between">
-            <span className="text-sm" style={{ color: "var(--color-text)" }}>To extra debt</span>
-            <span className="text-sm font-figure font-bold" style={{ color: "var(--color-text)" }}>{extraDebtPct}%</span>
-          </div>
-          {/* stacked bar */}
-          <div className="flex h-7 rounded-lg overflow-hidden text-[11px] font-semibold text-white">
-            {savingsPct > 0 && <div className="flex items-center justify-center" style={{ width: `${savingsPct}%`, background: "#16A34A" }}>{savingsPct}%</div>}
-            {investPct > 0 && <div className="flex items-center justify-center" style={{ width: `${investPct}%`, background: "#8B5CF6" }}>{investPct}%</div>}
-            {extraDebtPct > 0 && <div className="flex items-center justify-center" style={{ width: `${extraDebtPct}%`, background: "#EF4444" }}>{extraDebtPct}%</div>}
-          </div>
-          <p className="text-xs leading-relaxed" style={{ color: "var(--color-faint)" }}>
-            Freed-up minimums roll into the next-highest-APR debt. Your savings &amp;
-            investing percentages keep flowing, and once debt-free the freed money
-            redirects to savings.
-          </p>
         </Card>
       </section>
 
