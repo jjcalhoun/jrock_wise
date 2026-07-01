@@ -15,23 +15,23 @@ export function Sheet({ title, onClose, children }: SheetProps) {
   }, []);
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col justify-end">
+    <div className="fixed inset-0 z-50 flex flex-col justify-end lg:justify-center lg:items-center lg:p-6">
       {/* Scrim */}
       <div className="absolute inset-0 scrim" onClick={onClose} />
 
-      {/* Panel */}
+      {/* Panel — bottom sheet on mobile, centered dialog on desktop */}
       <div
-        className="relative z-10 w-full max-w-[430px] mx-auto rounded-t-[24px] overflow-hidden"
-        style={{ background: "var(--color-elevated)" }}
+        className="relative z-10 w-full max-w-[430px] mx-auto rounded-t-[24px] overflow-hidden lg:rounded-[24px] lg:max-w-lg lg:border"
+        style={{ background: "var(--color-elevated)", borderColor: "var(--color-hairline)" }}
       >
-        {/* Drag handle */}
-        <div className="flex justify-center pt-3 pb-2">
+        {/* Drag handle (mobile only) */}
+        <div className="flex justify-center pt-3 pb-2 lg:hidden">
           <div className="w-10 h-1 rounded-full" style={{ background: "var(--color-hairline)" }} />
         </div>
 
         {title && (
           <div
-            className="flex items-center justify-between px-5 pb-4 border-b"
+            className="flex items-center justify-between px-5 pb-4 lg:pt-4 border-b"
             style={{ borderColor: "var(--color-hairline)" }}
           >
             <span className="font-semibold text-base" style={{ color: "var(--color-text)" }}>

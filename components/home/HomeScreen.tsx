@@ -89,6 +89,9 @@ export function HomeScreen() {
         </div>
       </div>
 
+      {/* Two-column dashboard on desktop; single stack on mobile */}
+      <div className="lg:grid lg:grid-cols-2 lg:gap-5 lg:items-start space-y-5 lg:space-y-0">
+        <div className="space-y-5">
       {/* Review-queue card (only when there's something to review) */}
       {unreviewed > 0 && (
         <button
@@ -173,6 +176,9 @@ export function HomeScreen() {
         </Card>
       )}
 
+        </div>{/* left column */}
+
+        <div className="space-y-5">
       {/* Recent transactions */}
       {recent.length > 0 && (
         <section className="space-y-3">
@@ -259,6 +265,8 @@ export function HomeScreen() {
           + New transaction
         </Button>
       )}
+        </div>{/* right column */}
+      </div>{/* dashboard grid */}
 
       {sheet === "account" && <AccountEditor onClose={() => setSheet(null)} />}
       {sheet === "txn" && <NewTransaction onClose={() => setSheet(null)} />}

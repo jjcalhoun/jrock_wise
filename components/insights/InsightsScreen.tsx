@@ -87,6 +87,9 @@ export function InsightsScreen() {
         </button>
       </div>
 
+      {/* Two-column dashboard on desktop */}
+      <div className="lg:grid lg:grid-cols-2 lg:gap-5 lg:items-start space-y-5 lg:space-y-0">
+        <div className="space-y-5">
       {/* Gauge */}
       <Card className="px-3 pt-3 pb-2">
         <Gauge segments={gaugeSegments} spent={roll.spend} budget={gaugeBudget} />
@@ -104,7 +107,9 @@ export function InsightsScreen() {
           {fmt(available)}
         </p>
       </Card>
+        </div>{/* left column */}
 
+        <div className="space-y-5">
       {/* Spending categories */}
       {ranked.length > 0 && (
         <section className="space-y-3">
@@ -172,6 +177,8 @@ export function InsightsScreen() {
           ))}
         </Card>
       </section>
+        </div>{/* right column */}
+      </div>{/* dashboard grid */}
 
       {ranked.length === 0 && (
         <p className="text-sm text-center py-4" style={{ color: "var(--color-muted)" }}>
