@@ -51,6 +51,22 @@ describe("projectDebt", () => {
     expect(p.points[p.points.length - 1].month).toBe(p.debtFreeMonth + 12);
   });
 
+  it("rolls a paid-off debt's minimum into the next debt", () => {
+    // 0% APR so the math is clean; no surplus so the pool is minimums only.
+    const p = projectDebt({
+      ...base,
+      monthlySurplus: 0,
+      debts: [
+        { id: "a", name: "A", balance: 1000, apr: 0, minPayment: 100 }, // clears ~mo 10
+        { id: "b", name: "B", balance: 2000, apr: 0, minPayment: 100 },
+      ],
+    });
+    const b = p.order.find((o) => o.id === "b")!;
+    // Without rollover B would take 20 months (2000 / 100). With A's freed $100
+    // rolling in after ~month 10, B pays $200/mo and clears sooner.
+    expect(b.monthsToClear).toBeLessThan(20);
+  });
+
   it("handles no debts (already debt-free)", () => {
     const p = projectDebt({ ...base, debts: [] });
     expect(p.debtFreeMonth).toBe(0);
