@@ -18,9 +18,9 @@ export default async function AppLayout({
   }
 
   return (
-    <div className="relative mx-auto w-full max-w-[430px] min-h-screen" style={{ background: "var(--color-canvas)" }}>
+    <div className="relative mx-auto w-full max-w-[430px] min-h-screen pt-safe" style={{ background: "var(--color-canvas)" }}>
       <RecurringRunner />
-      <div className="pb-24">{children}</div>
+      <div className="pb-28">{children}</div>
       <BottomNav />
     </div>
   );
