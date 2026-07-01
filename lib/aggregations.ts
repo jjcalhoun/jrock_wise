@@ -11,7 +11,7 @@
  *    (expense negative → positive spend; refund positive → negative spend = claw-back).
  */
 
-import type { Transaction, TransactionSplit, Account, BucketType, Rollup } from "./types";
+import type { Transaction, Account, BucketType, Rollup } from "./types";
 
 /** "YYYY-MM" key for a date string or Date */
 export function monthKey(date: string | Date): string {
@@ -82,70 +82,4 @@ export function accountBalance(account: Account, txns: Transaction[]): number {
     (t) => t.account_id === account.id && t.date > account.as_of_date,
   );
   return account.starting_balance + acctTxns.reduce((s, t) => s + t.amount, 0);
-}
-
-/**
- * Compute balances for all accounts in a map keyed by account_id.
- */
-export function allBalances(
-  accounts: Account[],
-  txns: Transaction[],
-): Record<string, number> {
-  const out: Record<string, number> = {};
-  for (const acct of accounts) {
-    out[acct.id] = accountBalance(acct, txns);
-  }
-  return out;
-}
-
-/**
- * Average monthly spend for a category over the last N months ending at
- * (but not including) the current month.
- *
- * @param txns  All transactions with splits joined.
- * @param catId Category ID to average.
- * @param asOf  The reference date (usually today). Averages go backwards from here.
- * @param months  3 or 6.
- */
-export function categoryAverage(
-  txns: Transaction[],
-  catId: string,
-  asOf: Date,
-  months: number,
-): number {
-  const sums: number[] = [];
-  for (let i = 1; i <= months; i++) {
-    const d = new Date(asOf.getFullYear(), asOf.getMonth() - i, 1);
-    const mk = monthKey(d);
-    const { byCat } = rollup(txns, mk);
-    sums.push(byCat[catId] ?? 0);
-  }
-  return sums.reduce((a, b) => a + b, 0) / months;
-}
-
-/**
- * 3-month and 6-month averages for a given category.
- */
-export function categoryAverages(
-  txns: Transaction[],
-  catId: string,
-  asOf: Date = new Date(),
-): { avg3: number; avg6: number } {
-  return {
-    avg3: categoryAverage(txns, catId, asOf, 3),
-    avg6: categoryAverage(txns, catId, asOf, 6),
-  };
-}
-
-/**
- * Validate that splits on an expense or refund transaction sum to the
- * parent amount (within a cent of floating-point tolerance).
- */
-export function splitsBalanced(
-  amount: number,
-  splits: Pick<TransactionSplit, "amount">[],
-): boolean {
-  if (splits.length === 0) return false;
-  const total = splits.reduce((s, sp) => s + sp.amount, 0);
-  return Math.abs(total - amount) < 0.005;
 }

@@ -11,13 +11,7 @@ import {
 } from "@/hooks/useSupabaseData";
 import { useTxnWindow } from "@/components/providers";
 import { rollup } from "@/lib/aggregations";
-import { fmt0, fmt, currentMonthKey, monthLabel } from "@/lib/format";
-
-function addMonth(key: string, delta: number): string {
-  const [y, m] = key.split("-").map(Number);
-  const d = new Date(y, m - 1 + delta, 1);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
-}
+import { fmt0, fmt, currentMonthKey, monthLabel, addMonth } from "@/lib/format";
 import { BUCKETS } from "@/lib/buckets";
 import { TxnTile } from "@/components/transactions/TxnTile";
 import { Card } from "@/components/ui/Card";
