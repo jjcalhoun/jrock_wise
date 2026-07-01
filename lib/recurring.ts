@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { RecurringRule, RecurringFrequency } from "@/lib/types";
+import { clampDay } from "@/lib/dates";
 
 /* Recurring transaction generation. Pure date math (occurrences) is unit-tested;
    generateRecurring materializes the rows. Occurrences are produced only through
@@ -17,8 +18,6 @@ export interface Schedule {
 
 const iso = (d: Date) => d.toISOString().slice(0, 10);
 const parse = (s: string) => new Date(`${s}T00:00:00Z`);
-const daysInMonth = (y: number, m0: number) => new Date(Date.UTC(y, m0 + 1, 0)).getUTCDate();
-const clampDay = (y: number, m0: number, day: number) => Math.min(day, daysInMonth(y, m0));
 
 /** All occurrence dates (ISO) for a rule within [from, to], inclusive. */
 export function occurrences(rule: Schedule, from: string, to: string): string[] {

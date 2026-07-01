@@ -12,16 +12,10 @@ import {
 import { rollup } from "@/lib/aggregations";
 import { type DebtStrategy } from "@/lib/debt";
 import { LIABILITY_TYPES } from "@/lib/buckets";
-import { fmt0, currentMonthKey } from "@/lib/format";
+import { fmt0, currentMonthKey, addMonth } from "@/lib/format";
 import { Card } from "@/components/ui/Card";
 import { Chip } from "@/components/ui/Chip";
 import { DebtPlanner } from "@/components/debt/DebtPlanner";
-
-function addMonth(key: string, delta: number): string {
-  const [y, m] = key.split("-").map(Number);
-  const d = new Date(y, m - 1 + delta, 1);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
-}
 
 export function DebtScreen() {
   const { data: accounts = [] } = useAccounts();

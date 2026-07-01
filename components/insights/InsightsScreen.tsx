@@ -9,7 +9,7 @@ import {
 } from "@/hooks/useSupabaseData";
 import { useTxnWindow } from "@/components/providers";
 import { rollup } from "@/lib/aggregations";
-import { fmt, fmt0, monthLabel, currentMonthKey } from "@/lib/format";
+import { fmt, fmt0, monthLabel, currentMonthKey, addMonth } from "@/lib/format";
 import { BUCKETS } from "@/lib/buckets";
 import { Card } from "@/components/ui/Card";
 import { ProgressBar } from "@/components/ui/ProgressBar";
@@ -17,12 +17,6 @@ import { Gauge } from "@/components/insights/Gauge";
 import { CategoryDetail } from "@/components/insights/CategoryDetail";
 import { GaugeLoader } from "@/components/ui/GaugeLoader";
 import type { BucketType, Category } from "@/lib/types";
-
-function addMonth(key: string, delta: number): string {
-  const [y, m] = key.split("-").map(Number);
-  const d = new Date(y, m - 1 + delta, 1);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
-}
 
 export function InsightsScreen() {
   const { data: transactions = [], isLoading } = useTransactions();

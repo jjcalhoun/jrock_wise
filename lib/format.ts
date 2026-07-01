@@ -19,13 +19,6 @@ export function fmt0(n: number): string {
   return sign + "$" + Math.abs(Math.round(n)).toLocaleString("en-US");
 }
 
-/** "$1.2K" for large figures, else fmt0. */
-export function fmtK(n: number): string {
-  const a = Math.abs(n);
-  if (a >= 1000) return (n < 0 ? "-" : "") + "$" + (a / 1000).toFixed(1) + "K";
-  return fmt0(n);
-}
-
 const MONTH_NAMES = [
   "January", "February", "March", "April", "May", "June",
   "July", "August", "September", "October", "November", "December",
@@ -46,5 +39,12 @@ export function shortDate(iso: string): string {
 /** current "YYYY-MM" key. */
 export function currentMonthKey(): string {
   const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
+
+/** Shift a "YYYY-MM" key by a number of months (can be negative). */
+export function addMonth(key: string, delta: number): string {
+  const [y, m] = key.split("-").map(Number);
+  const d = new Date(y, m - 1 + delta, 1);
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
 }

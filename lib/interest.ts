@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Account } from "@/lib/types";
+import { daysInMonth } from "@/lib/dates";
 
 /* Estimated monthly interest for MANUAL liability accounts (loans/cards not
    linked to SimpleFIN — synced ones get the bank's real interest charge).
@@ -8,7 +9,6 @@ import type { Account } from "@/lib/types";
    applied lower it. Pure helpers are unit-tested. */
 
 const iso = (d: Date) => d.toISOString().slice(0, 10);
-const daysInMonth = (y: number, m0: number) => new Date(Date.UTC(y, m0 + 1, 0)).getUTCDate();
 
 /** Monthly interest on an outstanding balance at an annual percentage rate. */
 export function monthlyInterest(owed: number, apr: number): number {

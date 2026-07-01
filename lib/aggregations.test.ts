@@ -1,12 +1,5 @@
 import { describe, it, expect } from "vitest";
-import {
-  rollup,
-  accountBalance,
-  categoryAverage,
-  categoryAverages,
-  splitsBalanced,
-  monthKey,
-} from "./aggregations";
+import { rollup, accountBalance, monthKey } from "./aggregations";
 import type { Transaction, Account } from "./types";
 
 /* ---- helpers ---- */
@@ -161,40 +154,5 @@ describe("accountBalance — strictly after as_of_date", () => {
       makeTxn({ id: "t2", date: "2026-02-01", amount: -500, account_id: "other" }),
     ];
     expect(accountBalance(account, txns)).toBe(900);
-  });
-});
-
-/* ---- splitsBalanced ---- */
-describe("splitsBalanced", () => {
-  it("returns true when splits sum to parent amount", () => {
-    expect(splitsBalanced(-100, [{ amount: -60 }, { amount: -40 }])).toBe(true);
-  });
-  it("returns false when splits do not sum correctly", () => {
-    expect(splitsBalanced(-100, [{ amount: -60 }, { amount: -30 }])).toBe(false);
-  });
-  it("returns false for empty splits array", () => {
-    expect(splitsBalanced(-50, [])).toBe(false);
-  });
-  it("works for refund (positive amounts)", () => {
-    expect(splitsBalanced(30, [{ amount: 20 }, { amount: 10 }])).toBe(true);
-  });
-});
-
-/* ---- categoryAverages ---- */
-describe("categoryAverages", () => {
-  it("averages the N months before the reference month", () => {
-    const catId = "dining";
-    const txns: Transaction[] = [
-      // 3 months before Jun 2026 → Mar, Apr, May
-      makeTxn({ id: "t1", date: "2026-03-10", amount: -30, splits: [{ id: "s1", user_id: "u1", transaction_id: "t1", category_id: catId, bucket: "wants", amount: -30, created_at: "" }] }),
-      makeTxn({ id: "t2", date: "2026-04-10", amount: -60, splits: [{ id: "s2", user_id: "u1", transaction_id: "t2", category_id: catId, bucket: "wants", amount: -60, created_at: "" }] }),
-      makeTxn({ id: "t3", date: "2026-05-10", amount: -90, splits: [{ id: "s3", user_id: "u1", transaction_id: "t3", category_id: catId, bucket: "wants", amount: -90, created_at: "" }] }),
-      // current month, should be excluded from averages
-      makeTxn({ id: "t4", date: "2026-06-10", amount: -120, splits: [{ id: "s4", user_id: "u1", transaction_id: "t4", category_id: catId, bucket: "wants", amount: -120, created_at: "" }] }),
-    ];
-    const asOf = new Date(2026, 5, 24); // June 24, 2026
-    const { avg3, avg6 } = categoryAverages(txns, catId, asOf);
-    expect(avg3).toBeCloseTo(60); // (30+60+90)/3
-    expect(avg6).toBeCloseTo(30); // (0+0+0+30+60+90)/6
   });
 });
