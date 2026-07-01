@@ -8,6 +8,7 @@ import {
   useDeleteTransactions,
 } from "@/hooks/useSupabaseData";
 import { useTxnWindow } from "@/components/providers";
+import { useIsDesktop } from "@/hooks/useMediaQuery";
 import { TxnTile } from "@/components/transactions/TxnTile";
 import { NewTransaction } from "@/components/transactions/NewTransaction";
 import { TransactionEditor } from "@/components/transactions/TransactionEditor";
@@ -28,6 +29,7 @@ export function ActivityScreen() {
   const { data: transactions = [], isLoading } = useTransactions();
   const { data: categories = [] } = useCategories();
   const { ensureSince } = useTxnWindow();
+  const isDesktop = useIsDesktop();
   const [query, setQuery] = useState("");
   const [bucket, setBucket] = useState<BucketType | null>(null);
   const [filters, setFilters] = useState<ActivityFilters>(EMPTY_FILTERS);
@@ -148,6 +150,9 @@ export function ActivityScreen() {
         </div>
       </div>
 
+      {/* List + detail pane on desktop */}
+      <div className="lg:grid lg:grid-cols-[1fr_360px] lg:gap-5 lg:items-start">
+        <div className="space-y-4 min-w-0">
       <Input
         placeholder="Search transactions…"
         value={query}
@@ -207,9 +212,10 @@ export function ActivityScreen() {
             : "No transactions match your filters."}
         </p>
       ) : (
-        <div className="grid grid-cols-3 lg:grid-cols-5 xl:grid-cols-6 gap-3">
+        <div className="grid grid-cols-3 xl:grid-cols-4 gap-3">
           {filtered.map((t) => {
             const isSel = selected.has(t.id);
+            const isOpen = !selectMode && editTxn?.id === t.id;
             return (
               <div key={t.id} className="relative">
                 <TxnTile
@@ -217,6 +223,12 @@ export function ActivityScreen() {
                   categoryById={categoryById}
                   onClick={() => (selectMode ? toggleSelected(t.id) : setEditTxn(t))}
                 />
+                {isOpen && (
+                  <span
+                    className="absolute inset-0 rounded-[12px] pointer-events-none"
+                    style={{ boxShadow: "0 0 0 2px var(--color-primary)" }}
+                  />
+                )}
                 {selectMode && (
                   <span
                     className="absolute top-1.5 right-1.5 w-5 h-5 rounded-full flex items-center justify-center pointer-events-none"
@@ -243,6 +255,42 @@ export function ActivityScreen() {
           })}
         </div>
       )}
+        </div>{/* list column */}
+
+        {/* Detail pane — desktop only */}
+        <aside className="hidden lg:block sticky top-6">
+          {editTxn ? (
+            <div
+              className="rounded-[16px] border overflow-hidden"
+              style={{ background: "var(--color-surface)", borderColor: "var(--color-hairline)" }}
+            >
+              <div
+                className="flex items-center justify-between px-5 py-3 border-b"
+                style={{ borderColor: "var(--color-hairline)" }}
+              >
+                <span className="text-sm font-semibold" style={{ color: "var(--color-text)" }}>
+                  Edit transaction
+                </span>
+                <button onClick={() => setEditTxn(null)} style={{ color: "var(--color-muted)" }}>
+                  <span className="material-symbols-outlined" style={{ fontSize: 20 }}>close</span>
+                </button>
+              </div>
+              <div className="max-h-[calc(100vh-150px)] overflow-y-auto">
+                <TransactionEditor txn={editTxn} inline onClose={() => setEditTxn(null)} />
+              </div>
+            </div>
+          ) : (
+            <div
+              className="rounded-[16px] border p-10 text-center"
+              style={{ background: "var(--color-surface)", borderColor: "var(--color-hairline)" }}
+            >
+              <p className="text-sm" style={{ color: "var(--color-faint)" }}>
+                Select a transaction to view or edit it here.
+              </p>
+            </div>
+          )}
+        </aside>
+      </div>{/* list + detail */}
 
       {selectMode && (
         <div
@@ -274,7 +322,8 @@ export function ActivityScreen() {
       )}
       {showNew && <NewTransaction onClose={() => setShowNew(false)} />}
       {showReview && <ReviewFlow onClose={() => setShowReview(false)} />}
-      {editTxn && (
+      {/* Mobile: modal editor. Desktop uses the side panel above. */}
+      {editTxn && !isDesktop && (
         <TransactionEditor txn={editTxn} onClose={() => setEditTxn(null)} />
       )}
     </main>

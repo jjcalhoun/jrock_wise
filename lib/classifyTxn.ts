@@ -15,7 +15,7 @@ import type { AccountType, TransactionType } from "@/lib/types";
 
 const PAYMENT_RE =
   /\b(payment|pmt|autopay|auto[\s-]?pay|thank\s*you|online\s*payment|e-?payment|e-?pay|web\s*pay|bill\s*pay(?:ment)?|card\s*pay(?:ment)?)\b/i;
-const INTEREST_RE = /(interest|finance\s*charge|fin\s*chg|apr\s*charge)/i;
+export const INTEREST_RE = /(interest|finance\s*charge|fin\s*chg|apr\s*charge)/i;
 
 export interface ClassifyInput {
   amount: number; // signed, as reported by SimpleFIN
