@@ -18,6 +18,9 @@ export default function LoginPage() {
       email,
       options: {
         emailRedirectTo: `${location.origin}/auth/callback`,
+        // Single-user app: never create a new account from a login attempt.
+        // Only an already-existing user (you) can receive a magic link.
+        shouldCreateUser: false,
       },
     });
     setLoading(false);
