@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { BottomNav } from "@/components/nav/BottomNav";
+import { SideNav } from "@/components/nav/SideNav";
 import { RecurringRunner } from "@/components/recurring/RecurringRunner";
 
 export default async function AppLayout({
@@ -18,9 +19,15 @@ export default async function AppLayout({
   }
 
   return (
-    <div className="relative mx-auto w-full max-w-[430px] min-h-screen pt-safe" style={{ background: "var(--color-canvas)" }}>
+    <div className="min-h-screen lg:flex" style={{ background: "var(--color-canvas)" }}>
       <RecurringRunner />
-      <div className="pb-28">{children}</div>
+      {/* Desktop: sidebar; mobile: bottom nav (below) */}
+      <SideNav />
+      <main className="flex-1 min-w-0">
+        <div className="relative mx-auto w-full max-w-[430px] lg:max-w-xl min-h-screen pt-safe">
+          <div className="pb-28 lg:pb-10">{children}</div>
+        </div>
+      </main>
       <BottomNav />
     </div>
   );
