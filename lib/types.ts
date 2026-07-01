@@ -16,6 +16,7 @@ export interface Account {
   apr: number;
   color?: string | null;
   sort_order: number;
+  min_payment?: number | null; // liability accounts: minimum monthly payment
   statement_day?: number | null; // liability accounts: day interest posts
   live_balance?: number | null; // SimpleFIN live balance for linked accounts
   live_balance_at?: string | null;
@@ -104,6 +105,10 @@ export interface Settings {
   debt_strategy: DebtStrategy;
   debt_extra: number;
   autocategorize_imports: boolean;
+  investments_balance: number;
+  investments_return: number;
+  surplus_savings_pct: number;
+  surplus_investments_pct: number;
   updated_at: string;
 }
 

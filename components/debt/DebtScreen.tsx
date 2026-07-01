@@ -16,6 +16,7 @@ import { fmt, fmt0, currentMonthKey } from "@/lib/format";
 import { Card } from "@/components/ui/Card";
 import { Chip } from "@/components/ui/Chip";
 import { Input } from "@/components/ui/Input";
+import { DebtPlanner } from "@/components/debt/DebtPlanner";
 
 function monthsLabel(m: number): string {
   if (m <= 0) return "—";
@@ -48,6 +49,29 @@ export function DebtScreen() {
   );
 
   const totalDebt = debts.reduce((s, d) => s + d.balance, 0);
+
+  const liabilityAccounts = useMemo(
+    () => accounts.filter((a) => LIABILITY_TYPES.includes(a.type) && (balances[a.id] ?? 0) < 0),
+    [accounts, balances],
+  );
+  const debtBalances = useMemo(
+    () => Object.fromEntries(liabilityAccounts.map((a) => [a.id, Math.abs(balances[a.id] ?? 0)])),
+    [liabilityAccounts, balances],
+  );
+  const startChecking = useMemo(
+    () =>
+      accounts
+        .filter((a) => a.type === "checking" || a.type === "cash")
+        .reduce((s, a) => s + Math.max(0, balances[a.id] ?? 0), 0),
+    [accounts, balances],
+  );
+  const startSavings = useMemo(
+    () =>
+      accounts
+        .filter((a) => a.type === "savings")
+        .reduce((s, a) => s + Math.max(0, balances[a.id] ?? 0), 0),
+    [accounts, balances],
+  );
 
   const month = currentMonthKey();
   const roll = useMemo(() => rollup(transactions, month), [transactions, month]);
@@ -175,6 +199,17 @@ export function DebtScreen() {
               </Card>
             ))}
           </section>
+
+          {/* Debt planner: projections, surplus allocation, editable minimums */}
+          <DebtPlanner
+            liabilityAccounts={liabilityAccounts}
+            debtBalances={debtBalances}
+            strategy={strategy}
+            monthlySurplus={available}
+            startChecking={startChecking}
+            startSavings={startSavings}
+            settings={settings}
+          />
         </>
       )}
     </main>
