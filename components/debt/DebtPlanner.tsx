@@ -127,7 +127,9 @@ export function DebtPlanner({
 
   return (
     <div className="space-y-5">
-      {/* Surplus + allocation (top) */}
+      {/* Surplus allocation + payoff timeline, side by side on desktop */}
+      <div className="lg:grid lg:grid-cols-2 lg:gap-5 lg:items-start space-y-5 lg:space-y-0">
+      {/* Surplus + allocation */}
       <section className="space-y-2">
         <h2 className="text-sm font-semibold" style={{ color: "var(--color-text)" }}>Surplus allocation</h2>
         <Card className="p-4 space-y-3">
@@ -223,6 +225,7 @@ export function DebtPlanner({
           ))}
         </Card>
       </section>
+      </div>{/* surplus + timeline grid */}
 
       {/* Projection charts (Recharts, lazy-loaded) */}
       <DebtCharts

@@ -56,7 +56,7 @@ export function HomeScreen() {
   const heroValue = isCurrent ? Math.max(0, income - roll.spend) : roll.income - roll.spend;
   const heroLabel = isCurrent ? "Safe to spend" : "Net";
 
-  const recent = transactions.slice(0, 6);
+  const recent = transactions.slice(0, 9);
   const unreviewedList = transactions.filter((t) => !t.reviewed);
   const unreviewed = unreviewedList.length;
   const unreviewedTotal = unreviewedList.reduce((s, t) => s + Math.abs(t.amount), 0);
@@ -176,9 +176,6 @@ export function HomeScreen() {
         </Card>
       )}
 
-        </div>{/* left column */}
-
-        <div className="space-y-5">
       {/* Recent transactions */}
       {recent.length > 0 && (
         <section className="space-y-3">
@@ -205,6 +202,9 @@ export function HomeScreen() {
         </section>
       )}
 
+        </div>{/* left column */}
+
+        <div className="space-y-5">
       {/* Accounts */}
       {accounts.length > 0 && (
         <section className="space-y-3">
