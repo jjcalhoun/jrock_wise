@@ -207,7 +207,7 @@ export function ActivityScreen() {
             : "No transactions match your filters."}
         </p>
       ) : (
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-3 lg:grid-cols-5 xl:grid-cols-6 gap-3">
           {filtered.map((t) => {
             const isSel = selected.has(t.id);
             return (

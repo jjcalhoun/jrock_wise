@@ -24,7 +24,7 @@ export default async function AppLayout({
       {/* Desktop: sidebar; mobile: bottom nav (below) */}
       <SideNav />
       <main className="flex-1 min-w-0">
-        <div className="relative mx-auto w-full max-w-[430px] lg:max-w-xl min-h-screen pt-safe">
+        <div className="relative mx-auto w-full max-w-[430px] lg:max-w-4xl xl:max-w-5xl 2xl:max-w-6xl min-h-screen pt-safe lg:px-6">
           <div className="pb-28 lg:pb-10">{children}</div>
         </div>
       </main>
