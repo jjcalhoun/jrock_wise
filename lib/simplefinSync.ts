@@ -47,7 +47,6 @@ export async function syncUser(
     ]);
   const autocategorize = settings?.autocategorize_imports ?? true;
   const cats = (categories ?? []) as Category[];
-  const feesCat = cats.find((c) => c.name === "Fees");
   const typeFor = new Map(
     (accounts ?? []).map((a) => [a.id as string, a.type as Account["type"]]),
   );
@@ -127,13 +126,12 @@ export async function syncUser(
           accountBalance: Number(acct.balance),
         });
 
+        // Interest gets no split → it adds to the balance but is excluded from
+        // spend/leftover (spend is computed only from splits). Real purchases
+        // get a best-guess category.
         const splitCat =
-          c.type === "expense"
-            ? c.interest
-              ? feesCat ?? null
-              : autocategorize
-                ? guessCategory(description, cats)
-                : null
+          c.type === "expense" && !c.interest && autocategorize
+            ? guessCategory(description, cats)
             : null;
 
         candidates.push({
