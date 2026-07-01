@@ -353,6 +353,86 @@ export function useReviewTransaction() {
   });
 }
 
+export interface ResolveTransferInput {
+  id: string;
+  transfer_account_id: string;
+  countAsSavings: boolean;
+}
+
+const addDays = (iso: string, n: number) =>
+  new Date(new Date(`${iso}T00:00:00Z`).getTime() + n * 86400000).toISOString().slice(0, 10);
+
+/** Resolve a transfer in one action: mark it reviewed, find the matching
+ *  opposite-amount transaction on the counterpart account (within 5 days) and
+ *  link both via transfer_group_id, and — when it's a savings allocation — tag
+ *  a single side with bucket='savings' so it counts once toward the bucket. */
+export function useResolveTransfer() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, transfer_account_id, countAsSavings }: ResolveTransferInput) => {
+      const { data: txn, error: tErr } = await supabase
+        .from("transactions")
+        .select("id, account_id, amount, date")
+        .eq("id", id)
+        .single();
+      if (tErr || !txn) throw tErr ?? new Error("Transaction not found");
+
+      // Find the counterpart: opposite amount on the other account, near date.
+      const { data: cands } = await supabase
+        .from("transactions")
+        .select("id, account_id, amount, date")
+        .eq("account_id", transfer_account_id)
+        .gte("date", addDays(txn.date, -5))
+        .lte("date", addDays(txn.date, 5));
+      const counter = (cands ?? [])
+        .filter((c) => c.id !== id && Math.abs(Number(c.amount) + Number(txn.amount)) < 0.001)
+        .sort(
+          (a, b) =>
+            Math.abs(Date.parse(a.date) - Date.parse(txn.date)) -
+            Math.abs(Date.parse(b.date) - Date.parse(txn.date)),
+        )[0];
+
+      const group =
+        typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}`;
+
+      // The savings amount is carried by exactly one row: the outflow side when
+      // both exist, otherwise this row.
+      const thisCarries = counter ? Number(txn.amount) < 0 : true;
+
+      await supabase
+        .from("transactions")
+        .update({
+          type: "transfer",
+          reviewed: true,
+          transfer_account_id,
+          transfer_group_id: group,
+          bucket: countAsSavings && thisCarries ? "savings" : null,
+        })
+        .eq("id", id);
+      await supabase.from("transaction_splits").delete().eq("transaction_id", id);
+
+      if (counter) {
+        await supabase
+          .from("transactions")
+          .update({
+            type: "transfer",
+            reviewed: true,
+            transfer_account_id: txn.account_id,
+            transfer_group_id: group,
+            bucket: countAsSavings && !thisCarries ? "savings" : null,
+          })
+          .eq("id", counter.id);
+        await supabase.from("transaction_splits").delete().eq("transaction_id", counter.id);
+      }
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["transactions"] });
+      qc.invalidateQueries({ queryKey: ["accounts"] });
+      qc.invalidateQueries({ queryKey: ["account_balances"] });
+    },
+  });
+}
+
 export interface ImportInput {
   account_id: string;
   rows: { date: string; amount: number; description: string; external_id: string }[];

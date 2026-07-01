@@ -96,6 +96,18 @@ describe("rollup — transfers excluded from spend/income", () => {
     expect(spend).toBe(0);
   });
 
+  it("a savings-designated transfer counts once in the savings bucket + spend", () => {
+    const txns: Transaction[] = [
+      // checking outflow carries the savings designation; savings inflow does not
+      makeTxn({ id: "t1", type: "transfer", amount: -100, bucket: "savings", splits: [] }),
+      makeTxn({ id: "t2", type: "transfer", amount: 100, splits: [] }),
+    ];
+    const { spend, income, byBucket } = rollup(txns, "2026-06");
+    expect(byBucket.savings).toBe(100);
+    expect(spend).toBe(100);
+    expect(income).toBe(0);
+  });
+
   it("income type accumulates to income, not spend", () => {
     const txns: Transaction[] = [
       makeTxn({ id: "t1", type: "income", amount: 2000, splits: [] }),

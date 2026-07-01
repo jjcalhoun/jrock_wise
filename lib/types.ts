@@ -57,6 +57,7 @@ export interface Transaction {
   type: TransactionType;
   transfer_account_id?: string | null;
   transfer_group_id?: string | null;
+  bucket?: BucketType | null; // transfers only: count toward this budget bucket
   notes?: string | null;
   source: TransactionSource;
   external_id?: string | null;
