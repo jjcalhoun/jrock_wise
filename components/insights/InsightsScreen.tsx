@@ -107,6 +107,25 @@ export function InsightsScreen() {
           {fmt(available)}
         </p>
       </Card>
+
+      {/* Cash flow */}
+      <section className="space-y-3">
+        <h2 className="text-sm font-semibold" style={{ color: "var(--color-text)" }}>
+          Cash flow
+        </h2>
+        <Card className="p-4 space-y-3">
+          <FlowBar label="Income" value={roll.income} max={Math.max(roll.income, roll.spend, 1)} color="var(--color-positive)" />
+          {(Object.keys(BUCKETS) as BucketType[]).map((b) => (
+            <FlowBar
+              key={b}
+              label={BUCKETS[b].label}
+              value={roll.byBucket[b]}
+              max={Math.max(roll.income, roll.spend, 1)}
+              color={BUCKETS[b].color}
+            />
+          ))}
+        </Card>
+      </section>
         </div>{/* left column */}
 
         <div className="space-y-5">
@@ -159,24 +178,6 @@ export function InsightsScreen() {
         </section>
       )}
 
-      {/* Cash flow */}
-      <section className="space-y-3">
-        <h2 className="text-sm font-semibold" style={{ color: "var(--color-text)" }}>
-          Cash flow
-        </h2>
-        <Card className="p-4 space-y-3">
-          <FlowBar label="Income" value={roll.income} max={Math.max(roll.income, roll.spend, 1)} color="var(--color-positive)" />
-          {(Object.keys(BUCKETS) as BucketType[]).map((b) => (
-            <FlowBar
-              key={b}
-              label={BUCKETS[b].label}
-              value={roll.byBucket[b]}
-              max={Math.max(roll.income, roll.spend, 1)}
-              color={BUCKETS[b].color}
-            />
-          ))}
-        </Card>
-      </section>
         </div>{/* right column */}
       </div>{/* dashboard grid */}
 

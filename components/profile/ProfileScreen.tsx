@@ -43,8 +43,11 @@ export function ProfileScreen() {
         Profile
       </h1>
 
-      {/* Accounts */}
-      <section className="space-y-3">
+      {/* Two-column on desktop: accounts on the right, everything else left */}
+      <div className="lg:grid lg:grid-cols-2 lg:gap-5 lg:items-start space-y-5 lg:space-y-0">
+
+      {/* Accounts (right column on desktop) */}
+      <section className="space-y-3 lg:order-2">
         <div className="flex items-center justify-between">
           <h2 className="text-sm font-semibold" style={{ color: "var(--color-text)" }}>
             Accounts
@@ -91,6 +94,8 @@ export function ProfileScreen() {
         )}
       </section>
 
+      {/* Left column on desktop: settings, theme, install, sign out */}
+      <div className="lg:order-1 space-y-5">
       {/* Settings */}
       <section className="space-y-3">
         <h2 className="text-sm font-semibold" style={{ color: "var(--color-text)" }}>
@@ -126,6 +131,8 @@ export function ProfileScreen() {
       <Button variant="secondary" fullWidth onClick={signOut}>
         Sign out
       </Button>
+      </div>{/* left column */}
+      </div>{/* dashboard grid */}
 
       {editingAccount && (
         <AccountEditor
