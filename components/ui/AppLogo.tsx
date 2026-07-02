@@ -12,34 +12,38 @@ export function AppLogo({ className }: { className?: string }) {
         </radialGradient>
       </defs>
       <rect width="512" height="512" fill="#16A34A" />
-      <ellipse cx="256" cy="262" rx="64" ry="120" fill="url(#jrw-glow)" />
-      <path
-        d="M212 110 L146 148 L100 232 L108 330 L172 398 L232 404 L206 344 L236 292 L204 238 L238 178 L212 110 Z"
-        fill="#454E5C"
-        stroke="#242B35"
-        strokeWidth="11"
-        strokeLinejoin="round"
-      />
-      <path
-        d="M262 104 L346 130 L410 212 L404 322 L336 400 L282 406 L308 346 L278 292 L312 238 L276 176 L262 104 Z"
-        fill="#4E5866"
-        stroke="#242B35"
-        strokeWidth="11"
-        strokeLinejoin="round"
-      />
-      <path d="M212 110 L146 148 L164 190 L212 168 Z" fill="#5C6678" />
-      <path d="M262 104 L346 130 L330 176 L276 160 Z" fill="#5A6474" />
-      <text
-        x="257"
-        y="318"
-        fontFamily="system-ui, Arial, sans-serif"
-        fontWeight="700"
-        fontSize="160"
-        fill="#fff"
-        textAnchor="middle"
-      >
-        $
-      </text>
+      {/* Scale the whole geode up around the canvas center so it reaches nearly
+          to the edges, leaving only a thin green margin. */}
+      <g transform="translate(256 256) scale(1.38) translate(-256 -256)">
+        <ellipse cx="256" cy="262" rx="64" ry="120" fill="url(#jrw-glow)" />
+        <path
+          d="M212 110 L146 148 L100 232 L108 330 L172 398 L232 404 L206 344 L236 292 L204 238 L238 178 L212 110 Z"
+          fill="#454E5C"
+          stroke="#242B35"
+          strokeWidth="8"
+          strokeLinejoin="round"
+        />
+        <path
+          d="M262 104 L346 130 L410 212 L404 322 L336 400 L282 406 L308 346 L278 292 L312 238 L276 176 L262 104 Z"
+          fill="#4E5866"
+          stroke="#242B35"
+          strokeWidth="8"
+          strokeLinejoin="round"
+        />
+        <path d="M212 110 L146 148 L164 190 L212 168 Z" fill="#5C6678" />
+        <path d="M262 104 L346 130 L330 176 L276 160 Z" fill="#5A6474" />
+        <text
+          x="257"
+          y="318"
+          fontFamily="system-ui, Arial, sans-serif"
+          fontWeight="700"
+          fontSize="160"
+          fill="#fff"
+          textAnchor="middle"
+        >
+          $
+        </text>
+      </g>
     </svg>
   );
 }
