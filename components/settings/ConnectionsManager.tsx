@@ -41,6 +41,7 @@ export function ConnectionsManager({ onClose }: { onClose: () => void }) {
   const [token, setToken] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
+  const [warnings, setWarnings] = useState<string[]>([]);
 
   // Mapping sub-view state, populated after a successful claim.
   const [claimed, setClaimed] = useState<{
@@ -107,10 +108,13 @@ export function ConnectionsManager({ onClose }: { onClose: () => void }) {
   async function onSync(connectionId?: string) {
     setError(null);
     setNote(null);
+    setWarnings([]);
     try {
       const res = await sync.mutateAsync(connectionId);
-      const errs = res.errors.length ? ` (${res.errors.length} warning${res.errors.length === 1 ? "" : "s"})` : "";
-      setNote(`Synced — ${res.inserted} new, ${res.balancesUpdated} balance${res.balancesUpdated === 1 ? "" : "s"} updated.${errs}`);
+      setNote(`Synced — ${res.inserted} new, ${res.balancesUpdated} balance${res.balancesUpdated === 1 ? "" : "s"} updated.`);
+      // Show the actual messages (usually SimpleFIN saying a bank connection
+      // needs attention) so problems are actionable, not just counted.
+      setWarnings([...new Set(res.errors)]);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Sync failed.");
     }
@@ -284,6 +288,25 @@ export function ConnectionsManager({ onClose }: { onClose: () => void }) {
 
         {error && <p className="text-sm" style={{ color: "var(--color-danger)" }}>{error}</p>}
         {note && <p className="text-sm" style={{ color: "var(--color-positive)" }}>{note}</p>}
+        {warnings.length > 0 && (
+          <div
+            className="rounded-xl border p-3 space-y-1.5"
+            style={{ background: "var(--color-surface)", borderColor: "var(--color-danger)" }}
+          >
+            {warnings.map((w, i) => (
+              <p key={i} className="text-xs" style={{ color: "var(--color-danger)" }}>
+                ⚠ {w}
+              </p>
+            ))}
+            <p className="text-xs" style={{ color: "var(--color-faint)" }}>
+              If a bank "needs attention," open{" "}
+              <a href="https://beta-bridge.simplefin.org" target="_blank" rel="noreferrer" style={{ color: "var(--color-primary)" }}>
+                SimpleFIN Bridge
+              </a>{" "}
+              and repair the connection there, then sync again.
+            </p>
+          </div>
+        )}
       </div>
     </Sheet>
   );
