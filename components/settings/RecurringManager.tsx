@@ -152,6 +152,11 @@ function RuleEditor({ rule, onClose }: { rule?: RecurringRule; onClose: () => vo
         end_date: endDate || null,
         auto_review: autoReview,
         active,
+        // Reactivating a paused rule resumes from today — otherwise the
+        // generator would backfill every occurrence "missed" while paused.
+        ...(rule && !rule.active && active
+          ? { last_generated: new Date().toLocaleDateString("en-CA") }
+          : {}),
       });
       onClose();
     } catch (e) {
