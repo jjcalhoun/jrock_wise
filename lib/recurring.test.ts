@@ -43,6 +43,19 @@ describe("occurrences", () => {
     ).toEqual(["2026-01-01", "2026-02-01"]);
   });
 
+  it("weekly honors the chosen weekday (first occurrence on/after start)", () => {
+    // 2026-01-01 is a Thursday; weekday 5 = Friday → first fires Jan 2
+    expect(
+      occurrences({ ...base, frequency: "weekly", weekday: 5, start_date: "2026-01-01" }, "2026-01-01", "2026-01-20"),
+    ).toEqual(["2026-01-02", "2026-01-09", "2026-01-16"]);
+  });
+
+  it("weekly without a weekday falls back to the start date's weekday", () => {
+    expect(
+      occurrences({ ...base, frequency: "weekly", start_date: "2026-01-01" }, "2026-01-01", "2026-01-15"),
+    ).toEqual(["2026-01-01", "2026-01-08", "2026-01-15"]);
+  });
+
   it("biweekly steps 14 days from the anchor", () => {
     expect(
       occurrences({ ...base, frequency: "biweekly", start_date: "2026-01-02" }, "2026-01-01", "2026-02-01"),

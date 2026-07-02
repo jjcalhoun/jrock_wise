@@ -1,6 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Account } from "@/lib/types";
-import { daysInMonth } from "@/lib/dates";
+import { daysInMonth, todayISO } from "@/lib/dates";
 
 /* Estimated monthly interest for MANUAL liability accounts (loans/cards not
    linked to SimpleFIN — synced ones get the bank's real interest charge).
@@ -48,7 +48,7 @@ export async function accrueInterest(
   supabase: SupabaseClient,
   userId: string,
 ): Promise<AccrueResult> {
-  const today = iso(new Date());
+  const today = todayISO();
 
   const [{ data: accounts }, { data: maps }, { data: balances }] = await Promise.all([
     supabase.from("accounts").select("*").eq("user_id", userId),

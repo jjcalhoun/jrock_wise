@@ -1,6 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { RecurringRule, RecurringFrequency } from "@/lib/types";
-import { clampDay } from "@/lib/dates";
+import { clampDay, todayISO } from "@/lib/dates";
 
 /* Recurring transaction generation. Pure date math (occurrences) is unit-tested;
    generateRecurring materializes the rows. Occurrences are produced only through
@@ -46,10 +46,15 @@ export function occurrences(rule: Schedule, from: string, to: string): string[] 
       if (m > 11) { m = 0; y++; }
     }
   } else {
-    // weekly / biweekly: step days from the start anchor
+    // weekly / biweekly: step days from the anchor — the rule's weekday on or
+    // after start_date (falling back to start_date's own weekday).
     const step = (rule.frequency === "biweekly" ? 14 : 7) * (rule.interval || 1);
-    const start = parse(rule.start_date);
-    for (let t = start.getTime(); t <= hiD.getTime(); t += step * 86400000) {
+    let anchor = parse(rule.start_date);
+    if (typeof rule.weekday === "number") {
+      const shift = (rule.weekday - anchor.getUTCDay() + 7) % 7;
+      anchor = new Date(anchor.getTime() + shift * 86400000);
+    }
+    for (let t = anchor.getTime(); t <= hiD.getTime(); t += step * 86400000) {
       const d = iso(new Date(t));
       if (d >= lo) out.push(d);
     }
@@ -70,13 +75,13 @@ export async function generateRecurring(
   supabase: SupabaseClient,
   userId: string,
 ): Promise<GenerateResult> {
-  const today = iso(new Date());
-  const { data: rules, error } = await supabase
-    .from("recurring_rules")
-    .select("*")
-    .eq("user_id", userId)
-    .eq("active", true);
+  const today = todayISO();
+  const [{ data: rules, error }, { data: accounts }] = await Promise.all([
+    supabase.from("recurring_rules").select("*").eq("user_id", userId).eq("active", true),
+    supabase.from("accounts").select("id, type").eq("user_id", userId),
+  ]);
   if (error) throw new Error(error.message);
+  const accountType = new Map((accounts ?? []).map((a) => [a.id as string, a.type as string]));
 
   let inserted = 0;
   const errors: string[] = [];
@@ -84,6 +89,17 @@ export async function generateRecurring(
   for (const rule of (rules ?? []) as RecurringRule[]) {
     const from = rule.last_generated ? addDay(rule.last_generated) : rule.start_date;
     const dates = occurrences(rule, from, today);
+    let failed = false;
+
+    // A transfer into a savings-type account counts toward the savings bucket,
+    // matching how manually reviewed savings transfers behave.
+    const destination =
+      rule.type === "transfer"
+        ? rule.amount > 0
+          ? rule.account_id
+          : rule.transfer_account_id ?? null
+        : null;
+    const savingsTransfer = !!destination && accountType.get(destination) === "savings";
 
     if (dates.length > 0) {
       const externalIds = dates.map((d) => `recurring:${rule.id}:${d}`);
@@ -109,6 +125,7 @@ export async function generateRecurring(
             merchant: rule.name,
             type: rule.type,
             transfer_account_id: rule.type === "transfer" ? rule.transfer_account_id ?? null : null,
+            bucket: savingsTransfer ? "savings" : null,
             source: "recurring",
             external_id: externalId,
             reviewed: rule.auto_review,
@@ -117,6 +134,7 @@ export async function generateRecurring(
           .single();
         if (txnErr || !txn) {
           errors.push(txnErr?.message ?? "Insert failed");
+          failed = true;
           continue;
         }
         inserted++;
@@ -134,11 +152,15 @@ export async function generateRecurring(
       }
     }
 
-    await supabase
-      .from("recurring_rules")
-      .update({ last_generated: today })
-      .eq("id", rule.id)
-      .eq("user_id", userId);
+    // Advance the watermark only when nothing failed, so a transient insert
+    // error is retried next run (external_id dedupe prevents duplicates).
+    if (!failed) {
+      await supabase
+        .from("recurring_rules")
+        .update({ last_generated: today })
+        .eq("id", rule.id)
+        .eq("user_id", userId);
+    }
   }
 
   return { inserted, errors };
