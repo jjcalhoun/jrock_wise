@@ -1,6 +1,7 @@
 "use client";
 
 import { fmt, shortDate } from "@/lib/format";
+import { isInterestPaid } from "@/lib/interestPaid";
 import type { Transaction, Category } from "@/lib/types";
 
 interface Props {
@@ -13,6 +14,8 @@ export function TxnTile({ txn, categoryById, onClick }: Props) {
   const inflow = txn.amount > 0;
   const split = txn.splits ?? [];
   const isSplit = split.length > 1;
+  // Interest charges move the account balance but are excluded from the budget.
+  const balanceOnly = isInterestPaid(txn);
   const firstCat = split[0] ? categoryById[split[0].category_id] : undefined;
 
   const color =
@@ -71,6 +74,15 @@ export function TxnTile({ txn, categoryById, onClick }: Props) {
             style={{ background: "var(--color-chip-bg)", color: "var(--color-muted)" }}
           >
             SPLIT
+          </span>
+        )}
+        {balanceOnly && (
+          <span
+            className="text-[9px] font-bold px-1.5 py-0.5 rounded"
+            style={{ background: "var(--color-chip-bg)", color: "var(--color-muted)" }}
+            title="Interest — affects the account balance only, not your budget"
+          >
+            BALANCE ONLY
           </span>
         )}
       </div>

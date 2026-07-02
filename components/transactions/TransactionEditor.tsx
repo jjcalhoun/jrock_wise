@@ -13,6 +13,7 @@ import {
   useResolveTransfer,
 } from "@/hooks/useSupabaseData";
 import { CategoryGrid } from "@/components/transactions/CategoryGrid";
+import { isInterestPaid } from "@/lib/interestPaid";
 import { BUCKETS } from "@/lib/buckets";
 import type { Transaction, TransactionType, BucketType } from "@/lib/types";
 
@@ -50,7 +51,10 @@ export function TransactionEditor({ txn, onClose, inline }: Props) {
   const [notes, setNotes] = useState(txn.notes ?? "");
   const [error, setError] = useState<string | null>(null);
 
-  const needsCategory = type === "expense" || type === "refund";
+  // Interest charges affect the account balance only — they carry no category
+  // split and are excluded from the budget, so we don't prompt for a category.
+  const balanceOnly = isInterestPaid(txn);
+  const needsCategory = (type === "expense" || type === "refund") && !balanceOnly;
   const inflow = txn.amount > 0;
   const otherAccounts = accounts.filter((a) => a.id !== accountId);
 
@@ -111,6 +115,15 @@ export function TransactionEditor({ txn, onClose, inline }: Props) {
 
   const body = (
       <div className="px-5 py-4 space-y-4">
+        {balanceOnly && (
+          <div
+            className="rounded-[10px] px-3 py-2.5 text-xs"
+            style={{ background: "var(--color-chip-bg)", color: "var(--color-muted)" }}
+          >
+            Interest charge — this affects the account balance only. It’s excluded
+            from your spending and Net available, so there’s no category to set.
+          </div>
+        )}
         {/* type — fully editable across all four types */}
         <div>
           <p className="text-xs font-medium mb-2" style={{ color: "var(--color-muted)" }}>
