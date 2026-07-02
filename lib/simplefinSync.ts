@@ -7,7 +7,10 @@ import { classifyTxn } from "@/lib/classifyTxn";
 import { pairTransfers, type PairItem } from "@/lib/pairTransfers";
 import type { Account, Category, TransactionType } from "@/lib/types";
 
-const DAYS_90 = 90 * 24 * 60 * 60;
+// SimpleFIN rejects ranges over 90 days, and an exact-90-day request drifts
+// past the limit by the time it arrives ("range exceeds limit... was capped"
+// warning on every sync). 89 days stays safely inside it.
+const SYNC_WINDOW_SECONDS = 89 * 24 * 60 * 60;
 const PAIR_WINDOW_DAYS = 5;
 
 export interface SyncResult {
@@ -32,7 +35,7 @@ interface Candidate {
 /* Core SimpleFIN sync for one user. Works with any Supabase client whose queries
    resolve to this user's rows — the session client (RLS scopes automatically) or
    the service-role admin client used by the cron (we scope by userId here).
-   Pulls 90 days, updates live balances, classifies new transactions, pairs the
+   Pulls ~90 days, updates live balances, classifies new transactions, pairs the
    two sides of transfers (so card payments don't double-count), and inserts. */
 export async function syncUser(
   supabase: SupabaseClient,
@@ -63,7 +66,7 @@ export async function syncUser(
   const { data: connections, error: connErr } = await connQuery;
   if (connErr) throw new Error(connErr.message);
 
-  const startDate = Math.floor(Date.now() / 1000) - DAYS_90;
+  const startDate = Math.floor(Date.now() / 1000) - SYNC_WINDOW_SECONDS;
   let balancesUpdated = 0;
   const errors: string[] = [];
 
