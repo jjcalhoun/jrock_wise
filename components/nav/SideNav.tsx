@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { AppLogo } from "@/components/ui/AppLogo";
 
 const TABS = [
   { href: "/", label: "Home", icon: "home" },
@@ -22,7 +23,9 @@ export function SideNav() {
       style={{ background: "var(--color-surface)", borderRight: "1px solid var(--color-hairline)" }}
     >
       <div className="flex items-center gap-2.5 px-3 mb-6">
-        <span className="w-8 h-8 rounded-xl bg-hero-gradient inline-block" />
+        <span className="w-8 h-8 rounded-xl overflow-hidden inline-block">
+          <AppLogo className="w-full h-full" />
+        </span>
         <span className="font-figure text-lg font-bold" style={{ color: "var(--color-text)" }}>
           JRock_Wise
         </span>
