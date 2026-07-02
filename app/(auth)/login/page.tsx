@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { AppLogo } from "@/components/ui/AppLogo";
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
@@ -45,9 +46,9 @@ export default function LoginPage() {
       >
         {/* Logo / wordmark */}
         <div className="mb-8 text-center">
-          <div
-            className="inline-flex items-center justify-center w-14 h-14 rounded-2xl mb-4 bg-hero-gradient"
-          />
+          <div className="inline-flex w-14 h-14 rounded-2xl mb-4 overflow-hidden">
+            <AppLogo className="w-full h-full" />
+          </div>
           <h1
             className="font-figure text-2xl font-bold"
             style={{ color: "var(--color-text)" }}
