@@ -68,6 +68,19 @@ export function TxnTile({ txn, categoryById, accountNameById, savingsAccountIds,
         ? "var(--color-positive)"
         : firstCat?.color ?? "var(--color-faint)";
 
+  // At most one corner badge (by priority) so labels never overflow the tile.
+  const badge: { label: string; color: string; title: string } | null = scheduled
+    ? { label: "SCHEDULED", color: "var(--color-transfer)", title: "Scheduled — committed to this month's budget, not yet paid" }
+    : balanceOnly
+      ? { label: "BALANCE ONLY", color: "var(--color-muted)", title: "Interest — affects the account balance only, not your budget" }
+      : intoSavings
+        ? { label: "SAVINGS", color: BUCKETS.savings.color, title: "Transfer into savings — counts toward your Savings bucket" }
+        : isTransfer
+          ? { label: "TRANSFER", color: "var(--color-transfer)", title: "Transfer between accounts — not counted as income or spending" }
+          : isSplit
+            ? { label: "SPLIT", color: "var(--color-muted)", title: "Split across categories" }
+            : null;
+
   return (
     <button
       type="button"
@@ -83,9 +96,9 @@ export function TxnTile({ txn, categoryById, accountNameById, savingsAccountIds,
         opacity: scheduled ? 0.72 : 1,
       }}
     >
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-1">
         <span
-          className="inline-flex items-center justify-center w-8 h-8 rounded-full"
+          className="inline-flex items-center justify-center w-8 h-8 rounded-full shrink-0"
           style={{ background: `${color}22` }}
         >
           <span
@@ -95,46 +108,14 @@ export function TxnTile({ txn, categoryById, accountNameById, savingsAccountIds,
             {icon}
           </span>
         </span>
-        {scheduled && (
+        {/* One badge only (by priority) so two labels never overflow the tile. */}
+        {badge && (
           <span
-            className="text-[9px] font-bold px-1.5 py-0.5 rounded"
-            style={{ background: "var(--color-chip-bg)", color: "var(--color-transfer)" }}
-            title="Scheduled — committed to this month's budget, not yet paid"
+            className="text-[9px] font-bold px-1.5 py-0.5 rounded shrink truncate"
+            style={{ background: "var(--color-chip-bg)", color: badge.color }}
+            title={badge.title}
           >
-            SCHEDULED
-          </span>
-        )}
-        {isSplit && (
-          <span
-            className="text-[9px] font-bold px-1.5 py-0.5 rounded"
-            style={{ background: "var(--color-chip-bg)", color: "var(--color-muted)" }}
-          >
-            SPLIT
-          </span>
-        )}
-        {balanceOnly && (
-          <span
-            className="text-[9px] font-bold px-1.5 py-0.5 rounded"
-            style={{ background: "var(--color-chip-bg)", color: "var(--color-muted)" }}
-            title="Interest — affects the account balance only, not your budget"
-          >
-            BALANCE ONLY
-          </span>
-        )}
-        {isTransfer && (
-          <span
-            className="text-[9px] font-bold px-1.5 py-0.5 rounded"
-            style={{
-              background: "var(--color-chip-bg)",
-              color: intoSavings ? BUCKETS.savings.color : "var(--color-transfer)",
-            }}
-            title={
-              intoSavings
-                ? "Transfer into savings — counts toward your Savings bucket"
-                : "Transfer between accounts — not counted as income or spending"
-            }
-          >
-            {intoSavings ? "SAVINGS" : "TRANSFER"}
+            {badge.label}
           </span>
         )}
       </div>
