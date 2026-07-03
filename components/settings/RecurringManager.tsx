@@ -214,6 +214,10 @@ function RuleEditor({ rule, onClose }: { rule?: RecurringRule; onClose: () => vo
                 ))}
               </div>
             </div>
+            <p className="text-xs" style={{ color: "var(--color-faint)" }}>
+              Both accounts move: this posts on each side. Paying a credit card or
+              loan this way lowers your cash and pays down what you owe.
+            </p>
           </>
         )}
 

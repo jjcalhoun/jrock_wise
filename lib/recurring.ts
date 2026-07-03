@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { randomUUID } from "node:crypto";
 import type { RecurringRule, RecurringFrequency } from "@/lib/types";
 import { clampDay, todayISO } from "@/lib/dates";
 
@@ -76,12 +77,14 @@ export async function generateRecurring(
   userId: string,
 ): Promise<GenerateResult> {
   const today = todayISO();
-  const { data: rules, error } = await supabase
-    .from("recurring_rules")
-    .select("*")
-    .eq("user_id", userId)
-    .eq("active", true);
+  const [{ data: rules, error }, { data: maps }] = await Promise.all([
+    supabase.from("recurring_rules").select("*").eq("user_id", userId).eq("active", true),
+    supabase.from("simplefin_account_map").select("account_id").eq("user_id", userId),
+  ]);
   if (error) throw new Error(error.message);
+  // Bank-synced accounts get the real counterpart through the feed, so we only
+  // post a manual counterpart row for transfers into a manual account.
+  const synced = new Set((maps ?? []).map((m) => m.account_id as string));
 
   let inserted = 0;
   const errors: string[] = [];
@@ -104,6 +107,16 @@ export async function generateRecurring(
         const externalId = `recurring:${rule.id}:${date}`;
         if (seen.has(externalId)) continue;
 
+        // Two-sided transfers (e.g. a credit-card/HELOC payment) get a linked
+        // counterpart row on the other account, so both balances move: the
+        // source drops and the destination's owed balance is paid down. Only
+        // when the counterpart account is manual (synced ones get it from the
+        // bank feed).
+        const counterAcct = rule.transfer_account_id ?? null;
+        const twoSided =
+          rule.type === "transfer" && !!counterAcct && !synced.has(counterAcct);
+        const group = twoSided ? randomUUID() : null;
+
         const { data: txn, error: txnErr } = await supabase
           .from("transactions")
           .insert({
@@ -114,7 +127,8 @@ export async function generateRecurring(
             description: rule.name,
             merchant: rule.name,
             type: rule.type,
-            transfer_account_id: rule.type === "transfer" ? rule.transfer_account_id ?? null : null,
+            transfer_account_id: rule.type === "transfer" ? counterAcct : null,
+            transfer_group_id: group,
             source: "recurring",
             external_id: externalId,
             reviewed: rule.auto_review,
@@ -137,6 +151,32 @@ export async function generateRecurring(
             bucket: rule.bucket,
             amount: rule.amount,
           });
+        }
+
+        if (twoSided) {
+          const { error: cErr } = await supabase.from("transactions").insert({
+            user_id: userId,
+            account_id: counterAcct,
+            date,
+            amount: -rule.amount,
+            description: rule.name,
+            merchant: rule.name,
+            type: "transfer",
+            transfer_account_id: rule.account_id,
+            transfer_group_id: group,
+            source: "recurring",
+            external_id: `${externalId}:c`,
+            reviewed: rule.auto_review,
+          });
+          if (cErr) {
+            // Roll back the primary so the pair is retried atomically next run.
+            await supabase.from("transactions").delete().eq("id", txn.id);
+            inserted--;
+            errors.push(cErr.message);
+            failed = true;
+            continue;
+          }
+          inserted++;
         }
       }
     }
