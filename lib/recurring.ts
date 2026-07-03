@@ -1,7 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { randomUUID } from "node:crypto";
 import type { RecurringRule, RecurringFrequency } from "@/lib/types";
-import { clampDay, todayISO } from "@/lib/dates";
+import { clampDay, todayISO, endOfMonthISO } from "@/lib/dates";
 
 /* Recurring transaction generation. Pure date math (occurrences) is unit-tested;
    generateRecurring materializes the rows. Occurrences are produced only through
@@ -77,6 +77,7 @@ export async function generateRecurring(
   userId: string,
 ): Promise<GenerateResult> {
   const today = todayISO();
+  const monthEnd = endOfMonthISO();
   const [{ data: rules, error }, { data: maps }] = await Promise.all([
     supabase.from("recurring_rules").select("*").eq("user_id", userId).eq("active", true),
     supabase.from("simplefin_account_map").select("account_id").eq("user_id", userId),
@@ -90,8 +91,14 @@ export async function generateRecurring(
   const errors: string[] = [];
 
   for (const rule of (rules ?? []) as RecurringRule[]) {
+    // On a MANUAL account, pre-post the rest of this month so the items are
+    // committed to the budget from the 1st (the balance view ignores dates in
+    // the future, so they don't move balances until their day arrives). On a
+    // SYNCED account, only post through today — the real charges arrive from the
+    // bank feed, and pre-posting would duplicate them.
+    const to = synced.has(rule.account_id) ? today : monthEnd;
     const from = rule.last_generated ? addDay(rule.last_generated) : rule.start_date;
-    const dates = occurrences(rule, from, today);
+    const dates = occurrences(rule, from, to);
     let failed = false;
 
     if (dates.length > 0) {
@@ -181,12 +188,14 @@ export async function generateRecurring(
       }
     }
 
-    // Advance the watermark only when nothing failed, so a transient insert
-    // error is retried next run (external_id dedupe prevents duplicates).
+    // Advance the watermark to the horizon we generated through (this month's
+    // end on manual accounts, today on synced) — only when nothing failed, so a
+    // transient insert error is retried next run (external_id dedupe prevents
+    // duplicates).
     if (!failed) {
       await supabase
         .from("recurring_rules")
-        .update({ last_generated: today })
+        .update({ last_generated: to })
         .eq("id", rule.id)
         .eq("user_id", userId);
     }

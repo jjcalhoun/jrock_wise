@@ -2,6 +2,7 @@
 
 import { fmt, shortDate } from "@/lib/format";
 import { isInterestPaid } from "@/lib/interestPaid";
+import { todayISO } from "@/lib/dates";
 import { BUCKETS } from "@/lib/buckets";
 import type { Transaction, Category } from "@/lib/types";
 
@@ -20,6 +21,9 @@ export function TxnTile({ txn, categoryById, accountNameById, savingsAccountIds,
   const isSplit = split.length > 1;
   // Interest charges move the account balance but are excluded from the budget.
   const balanceOnly = isInterestPaid(txn);
+  // A future-dated row is a committed-but-not-yet-paid recurring item: it counts
+  // in this month's budget but hasn't hit the balance yet.
+  const scheduled = txn.date > todayISO();
   const firstCat = split[0] ? categoryById[split[0].category_id] : undefined;
 
   // A transfer moves money between two accounts. Show it as one "from → to"
@@ -71,9 +75,12 @@ export function TxnTile({ txn, categoryById, accountNameById, savingsAccountIds,
       className="rounded-[12px] p-3 flex flex-col gap-2 text-left w-full active:opacity-70 transition-opacity"
       style={{
         background: "var(--color-surface)",
-        border: txn.reviewed
-          ? `1.5px solid ${accent}`
-          : "1.5px dashed var(--color-faint)",
+        border: scheduled
+          ? "1.5px dashed var(--color-transfer)"
+          : txn.reviewed
+            ? `1.5px solid ${accent}`
+            : "1.5px dashed var(--color-faint)",
+        opacity: scheduled ? 0.72 : 1,
       }}
     >
       <div className="flex items-center justify-between">
@@ -88,6 +95,15 @@ export function TxnTile({ txn, categoryById, accountNameById, savingsAccountIds,
             {icon}
           </span>
         </span>
+        {scheduled && (
+          <span
+            className="text-[9px] font-bold px-1.5 py-0.5 rounded"
+            style={{ background: "var(--color-chip-bg)", color: "var(--color-transfer)" }}
+            title="Scheduled — committed to this month's budget, not yet paid"
+          >
+            SCHEDULED
+          </span>
+        )}
         {isSplit && (
           <span
             className="text-[9px] font-bold px-1.5 py-0.5 rounded"
