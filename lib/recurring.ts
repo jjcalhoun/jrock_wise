@@ -76,12 +76,12 @@ export async function generateRecurring(
   userId: string,
 ): Promise<GenerateResult> {
   const today = todayISO();
-  const [{ data: rules, error }, { data: accounts }] = await Promise.all([
-    supabase.from("recurring_rules").select("*").eq("user_id", userId).eq("active", true),
-    supabase.from("accounts").select("id, type").eq("user_id", userId),
-  ]);
+  const { data: rules, error } = await supabase
+    .from("recurring_rules")
+    .select("*")
+    .eq("user_id", userId)
+    .eq("active", true);
   if (error) throw new Error(error.message);
-  const accountType = new Map((accounts ?? []).map((a) => [a.id as string, a.type as string]));
 
   let inserted = 0;
   const errors: string[] = [];
@@ -90,16 +90,6 @@ export async function generateRecurring(
     const from = rule.last_generated ? addDay(rule.last_generated) : rule.start_date;
     const dates = occurrences(rule, from, today);
     let failed = false;
-
-    // A transfer into a savings-type account counts toward the savings bucket,
-    // matching how manually reviewed savings transfers behave.
-    const destination =
-      rule.type === "transfer"
-        ? rule.amount > 0
-          ? rule.account_id
-          : rule.transfer_account_id ?? null
-        : null;
-    const savingsTransfer = !!destination && accountType.get(destination) === "savings";
 
     if (dates.length > 0) {
       const externalIds = dates.map((d) => `recurring:${rule.id}:${d}`);
@@ -125,7 +115,6 @@ export async function generateRecurring(
             merchant: rule.name,
             type: rule.type,
             transfer_account_id: rule.type === "transfer" ? rule.transfer_account_id ?? null : null,
-            bucket: savingsTransfer ? "savings" : null,
             source: "recurring",
             external_id: externalId,
             reviewed: rule.auto_review,

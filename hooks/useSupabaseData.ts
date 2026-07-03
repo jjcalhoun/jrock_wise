@@ -395,7 +395,6 @@ export function useSetAccountMinPayment() {
 export interface ResolveTransferInput {
   id: string;
   transfer_account_id: string;
-  countAsSavings: boolean;
 }
 
 const addDays = (iso: string, n: number) =>
@@ -403,12 +402,12 @@ const addDays = (iso: string, n: number) =>
 
 /** Resolve a transfer in one action: mark it reviewed, find the matching
  *  opposite-amount transaction on the counterpart account (within 5 days) and
- *  link both via transfer_group_id, and — when it's a savings allocation — tag
- *  a single side with bucket='savings' so it counts once toward the bucket. */
+ *  link both via transfer_group_id. Savings-bucket impact is derived from the
+ *  account types at read time (see rollup), so no per-row tagging is needed. */
 export function useResolveTransfer() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async ({ id, transfer_account_id, countAsSavings }: ResolveTransferInput) => {
+    mutationFn: async ({ id, transfer_account_id }: ResolveTransferInput) => {
       const { data: txn, error: tErr } = await supabase
         .from("transactions")
         .select("id, account_id, amount, date")
@@ -434,10 +433,6 @@ export function useResolveTransfer() {
       const group =
         typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}`;
 
-      // The savings amount is carried by exactly one row: the outflow side when
-      // both exist, otherwise this row.
-      const thisCarries = counter ? Number(txn.amount) < 0 : true;
-
       await supabase
         .from("transactions")
         .update({
@@ -445,7 +440,7 @@ export function useResolveTransfer() {
           reviewed: true,
           transfer_account_id,
           transfer_group_id: group,
-          bucket: countAsSavings && thisCarries ? "savings" : null,
+          bucket: null,
         })
         .eq("id", id);
       await supabase.from("transaction_splits").delete().eq("transaction_id", id);
@@ -458,7 +453,7 @@ export function useResolveTransfer() {
             reviewed: true,
             transfer_account_id: txn.account_id,
             transfer_group_id: group,
-            bucket: countAsSavings && !thisCarries ? "savings" : null,
+            bucket: null,
           })
           .eq("id", counter.id);
         await supabase.from("transaction_splits").delete().eq("transaction_id", counter.id);

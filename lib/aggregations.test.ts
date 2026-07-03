@@ -89,16 +89,40 @@ describe("rollup — transfers excluded from spend/income", () => {
     expect(spend).toBe(0);
   });
 
-  it("a savings-designated transfer counts once in the savings bucket + spend", () => {
+  it("a transfer INTO savings adds to the savings bucket + spend, counted once", () => {
+    const savings = new Set(["sav"]);
     const txns: Transaction[] = [
-      // checking outflow carries the savings designation; savings inflow does not
-      makeTxn({ id: "t1", type: "transfer", amount: -100, bucket: "savings", splits: [] }),
-      makeTxn({ id: "t2", type: "transfer", amount: 100, splits: [] }),
+      // checking outflow (non-savings leg) + savings inflow (the counted leg)
+      makeTxn({ id: "t1", account_id: "chk", type: "transfer", amount: -100, splits: [] }),
+      makeTxn({ id: "t2", account_id: "sav", type: "transfer", amount: 100, splits: [] }),
     ];
-    const { spend, income, byBucket } = rollup(txns, "2026-06");
+    const { spend, income, byBucket } = rollup(txns, "2026-06", undefined, savings);
     expect(byBucket.savings).toBe(100);
     expect(spend).toBe(100);
     expect(income).toBe(0);
+  });
+
+  it("a transfer OUT of savings subtracts from the savings bucket + spend", () => {
+    const savings = new Set(["sav"]);
+    const txns: Transaction[] = [
+      // savings outflow (counted leg) + checking inflow (non-savings leg)
+      makeTxn({ id: "t1", account_id: "sav", type: "transfer", amount: -100, splits: [] }),
+      makeTxn({ id: "t2", account_id: "chk", type: "transfer", amount: 100, splits: [] }),
+    ];
+    const { spend, byBucket } = rollup(txns, "2026-06", undefined, savings);
+    expect(byBucket.savings).toBe(-100);
+    expect(spend).toBe(-100);
+  });
+
+  it("a transfer between non-savings accounts is budget-neutral", () => {
+    const savings = new Set(["sav"]);
+    const txns: Transaction[] = [
+      makeTxn({ id: "t1", account_id: "chk", type: "transfer", amount: -100, splits: [] }),
+      makeTxn({ id: "t2", account_id: "cash", type: "transfer", amount: 100, splits: [] }),
+    ];
+    const { spend, byBucket } = rollup(txns, "2026-06", undefined, savings);
+    expect(byBucket.savings).toBe(0);
+    expect(spend).toBe(0);
   });
 
   it("income type accumulates to income, not spend", () => {

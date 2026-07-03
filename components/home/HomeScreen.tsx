@@ -50,7 +50,14 @@ export function HomeScreen() {
 
   const netCash = accounts.reduce((s, a) => s + (balances[a.id] ?? 0), 0);
 
-  const roll = useMemo(() => rollup(transactions, month), [transactions, month]);
+  const savingsIds = useMemo(
+    () => new Set(accounts.filter((a) => a.type === "savings").map((a) => a.id)),
+    [accounts],
+  );
+  const roll = useMemo(
+    () => rollup(transactions, month, undefined, savingsIds),
+    [transactions, month, savingsIds],
+  );
   const income = budget?.income ?? 0;
   // current month → "safe to spend" (expected income − spent); past → actual net
   const heroValue = isCurrent ? Math.max(0, income - roll.spend) : roll.income - roll.spend;

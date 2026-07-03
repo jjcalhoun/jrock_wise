@@ -99,6 +99,10 @@ export function ActivityScreen() {
     () => Object.fromEntries(accounts.map((a) => [a.id, a.name])),
     [accounts],
   );
+  const savingsAccountIds = useMemo(
+    () => new Set(accounts.filter((a) => a.type === "savings").map((a) => a.id)),
+    [accounts],
+  );
 
   const filtered = useMemo(() => {
     return transactions.filter((t) => {
@@ -249,6 +253,7 @@ export function ActivityScreen() {
                   txn={t}
                   categoryById={categoryById}
                   accountNameById={accountNameById}
+                  savingsAccountIds={savingsAccountIds}
                   onClick={() => (selectMode ? toggleSelected(t.id) : setEditTxn(t))}
                 />
                 {isOpen && (
