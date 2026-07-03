@@ -9,7 +9,8 @@
 
 export interface SimplefinTransaction {
   id: string;
-  posted: number; // unix seconds
+  posted: number; // unix seconds; may be 0 for pending transactions
+  transacted_at?: number; // unix seconds; when it occurred (pending fallback)
   amount: string; // signed decimal string
   description: string;
   payee?: string;

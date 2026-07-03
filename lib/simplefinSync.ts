@@ -139,10 +139,14 @@ export async function syncUser(
             ? guessCategory(description, cats)
             : null;
 
+        // Pending transactions can report posted:0; fall back to transacted_at
+        // (or now) so they aren't dated to 1970 and hidden from the recent view.
+        const tsSeconds = t.posted || t.transacted_at || Math.floor(Date.now() / 1000);
+
         candidates.push({
           externalId,
           accountId: ourAccountId,
-          date: new Date(t.posted * 1000).toISOString().slice(0, 10),
+          date: new Date(tsSeconds * 1000).toISOString().slice(0, 10),
           amount: c.normalizedAmount,
           description,
           type: c.type,
