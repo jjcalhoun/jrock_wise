@@ -19,6 +19,15 @@ describe("pairTransfers", () => {
     expect(new Set([pairs[0].a.id, pairs[0].b.id])).toEqual(new Set(["card", "chk"]));
   });
 
+  it("does not swallow an income deposit that matches a payment amount", () => {
+    // A card payment (transfer) of 900 and a same-week paycheck of 900 must NOT pair.
+    const pairs = pairTransfers([
+      item({ id: "card", accountId: "card", amount: -900, type: "transfer", date: "2026-06-30" }),
+      item({ id: "paycheck", accountId: "checking", amount: 900, type: "income", date: "2026-06-30" }),
+    ]);
+    expect(pairs).toHaveLength(0);
+  });
+
   it("does not pair two unrelated equal expenses (no transfer anchor)", () => {
     const pairs = pairTransfers([
       item({ id: "a", accountId: "checking", amount: -50, type: "expense" }),
