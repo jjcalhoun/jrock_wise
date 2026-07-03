@@ -114,6 +114,30 @@ describe("rollup — transfers excluded from spend/income", () => {
     expect(spend).toBe(-100);
   });
 
+  it("a paydown into a loan account counts as spend (needs), reducing net available", () => {
+    const savings = new Set<string>();
+    const loans = new Set(["loan"]);
+    const txns: Transaction[] = [
+      // checking outflow (non-loan leg) + loan paydown (the counted leg)
+      makeTxn({ id: "t1", account_id: "chk", type: "transfer", amount: -250, splits: [] }),
+      makeTxn({ id: "t2", account_id: "loan", type: "transfer", amount: 250, splits: [] }),
+    ];
+    const { spend, byBucket } = rollup(txns, "2026-06", undefined, savings, loans);
+    expect(spend).toBe(250);
+    expect(byBucket.needs).toBe(250);
+  });
+
+  it("a credit-card payment stays budget-neutral (purchases already counted)", () => {
+    const txns: Transaction[] = [
+      makeTxn({ id: "t1", account_id: "chk", type: "transfer", amount: -250, splits: [] }),
+      makeTxn({ id: "t2", account_id: "card", type: "transfer", amount: 250, splits: [] }),
+    ];
+    // card is neither in savings nor loan sets
+    const { spend, byBucket } = rollup(txns, "2026-06", undefined, new Set(), new Set());
+    expect(spend).toBe(0);
+    expect(byBucket.needs).toBe(0);
+  });
+
   it("a transfer between non-savings accounts is budget-neutral", () => {
     const savings = new Set(["sav"]);
     const txns: Transaction[] = [
