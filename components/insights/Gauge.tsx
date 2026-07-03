@@ -107,23 +107,29 @@ export function Gauge({ petals, income, onPetalClick }: Props) {
           strokeWidth={2.5}
         />
         {wedges.map((w) => (
-          <g
-            key={w.p.key}
-            style={{ cursor: onPetalClick ? "pointer" : "default" }}
-            onMouseEnter={() => setActive(w.p.key)}
-            onMouseLeave={() => setActive((k) => (k === w.p.key ? null : k))}
-            onClick={() => onPetalClick?.(w.p.key)}
-          >
+          <g key={w.p.key}>
             {/* faint full-budget footprint */}
             <path d={wedgePath(w.aH, w.aL)} fill={w.p.color} opacity={0.3} />
             {/* solid actual fill */}
             {w.actualFrac > 0.01 && (
               <path d={wedgePath(w.aH, w.actualLow)} fill={w.p.color} />
             )}
-            {/* hover ring */}
+            {/* active ring */}
             {active === w.p.key && (
               <path d={wedgePath(w.aH, w.aL)} fill="none" stroke="#fff" strokeOpacity={0.5} strokeWidth={1.5} />
             )}
+            {/* transparent hit target on top — reliable tap/click across devices */}
+            <path
+              d={wedgePath(w.aH, w.aL)}
+              fill="transparent"
+              style={{ pointerEvents: "all", cursor: onPetalClick ? "pointer" : "default", touchAction: "manipulation" }}
+              onMouseEnter={() => setActive(w.p.key)}
+              onMouseLeave={() => setActive((k) => (k === w.p.key ? null : k))}
+              onClick={() => {
+                setActive(w.p.key);
+                onPetalClick?.(w.p.key);
+              }}
+            />
           </g>
         ))}
         {/* neutral remainder (unallocated income) */}

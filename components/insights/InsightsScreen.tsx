@@ -102,12 +102,10 @@ export function InsightsScreen() {
     return { actual, budget: budgetAmt, avg3: avg / 3, breakdown, txns };
   }, [transactions, accounts, loanIds, month]);
 
-  // Petals: every budgeted or spent category, plus a combined Debt payments petal.
+  // Petals: only categories with actual spending this month, plus a combined
+  // Debt payments petal when there were payments. (No spend → no petal.)
   const petals: GaugePetal[] = useMemo(() => {
-    const keys = new Set([
-      ...Object.keys(categoryBudgets).filter((id) => (categoryBudgets[id] ?? 0) > 0),
-      ...Object.keys(roll.byCat).filter((id) => roll.byCat[id] > 0),
-    ]);
+    const keys = new Set(Object.keys(roll.byCat).filter((id) => roll.byCat[id] > 0));
     const cat: GaugePetal[] = [...keys].flatMap((id) => {
       const c = categoryById[id];
       if (!c) return [];
@@ -121,7 +119,7 @@ export function InsightsScreen() {
         avg3: avg3ByCat[id] ?? 0,
       }];
     });
-    if (debt.budget > 0 || debt.actual > 0) {
+    if (debt.actual > 0) {
       cat.push({
         key: "debt",
         ...DEBT_PETAL,
