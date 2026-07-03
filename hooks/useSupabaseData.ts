@@ -410,7 +410,7 @@ export function useResolveTransfer() {
     mutationFn: async ({ id, transfer_account_id }: ResolveTransferInput) => {
       const { data: txn, error: tErr } = await supabase
         .from("transactions")
-        .select("id, account_id, amount, date")
+        .select("id, account_id, amount, date, description, merchant")
         .eq("id", id)
         .single();
       if (tErr || !txn) throw tErr ?? new Error("Transaction not found");
@@ -457,6 +457,30 @@ export function useResolveTransfer() {
           })
           .eq("id", counter.id);
         await supabase.from("transaction_splits").delete().eq("transaction_id", counter.id);
+      } else {
+        // No existing counterpart. If the destination is a MANUAL account (not
+        // bank-synced), post the other leg so its balance actually moves — e.g.
+        // a payment marked as a transfer into a manual loan pays that loan down
+        // (and so counts as a debt paydown). Synced destinations get their leg
+        // from the bank feed, so we skip them to avoid duplicates.
+        const { data: maps } = await supabase.from("simplefin_account_map").select("account_id");
+        const synced = new Set((maps ?? []).map((m) => m.account_id as string));
+        if (!synced.has(transfer_account_id)) {
+          const user_id = await currentUserId();
+          await supabase.from("transactions").insert({
+            user_id,
+            account_id: transfer_account_id,
+            date: txn.date,
+            amount: -Number(txn.amount),
+            description: txn.description,
+            merchant: txn.merchant,
+            type: "transfer",
+            transfer_account_id: txn.account_id,
+            transfer_group_id: group,
+            source: "manual",
+            reviewed: true,
+          });
+        }
       }
     },
     onSuccess: () => {
