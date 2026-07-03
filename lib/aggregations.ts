@@ -34,6 +34,7 @@ export function rollup(
   month?: string,
   catBucket?: Record<string, BucketType>, // fallback bucket lookup if split.bucket missing
   savingsAccountIds: Set<string> = new Set(), // accounts whose transfers move the savings bucket
+  loanAccountIds: Set<string> = new Set(), // loan/HELOC accounts whose paydowns count as spend
 ): Rollup {
   const byCat: Record<string, number> = {};
   const byBucket: Record<BucketType, number> = { needs: 0, wants: 0, savings: 0 };
@@ -55,6 +56,13 @@ export function rollup(
       // sign. Transfers between non-savings accounts are budget-neutral.
       if (savingsAccountIds.has(txn.account_id)) {
         byBucket.savings += txn.amount;
+        spend += txn.amount;
+      } else if (loanAccountIds.has(txn.account_id)) {
+        // Paying down a loan/HELOC is real money committed — the borrowing was
+        // never expensed — so it reduces net available. Filed under needs (a
+        // debt obligation). Credit cards are excluded: their purchases already
+        // counted, so counting the payment too would double-count.
+        byBucket.needs += txn.amount;
         spend += txn.amount;
       }
       continue;

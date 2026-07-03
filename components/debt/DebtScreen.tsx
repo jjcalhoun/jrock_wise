@@ -55,16 +55,20 @@ export function DebtScreen() {
     () => new Set(accounts.filter((a) => a.type === "savings").map((a) => a.id)),
     [accounts],
   );
+  const loanIds = useMemo(
+    () => new Set(accounts.filter((a) => a.type === "loan").map((a) => a.id)),
+    [accounts],
+  );
 
   // Average net available per month over the last 3 months (view only).
   const avgNet3 = useMemo(() => {
     const income = budget?.income ?? 0;
     const now = currentMonthKey();
     const nets = [0, 1, 2].map(
-      (i) => income - rollup(transactions, addMonth(now, -i), undefined, savingsIds).spend,
+      (i) => income - rollup(transactions, addMonth(now, -i), undefined, savingsIds, loanIds).spend,
     );
     return nets.reduce((a, b) => a + b, 0) / nets.length;
-  }, [transactions, budget, savingsIds]);
+  }, [transactions, budget, savingsIds, loanIds]);
 
   const interest = useMemo(() => {
     const now = currentMonthKey();

@@ -44,9 +44,13 @@ export function InsightsScreen() {
     () => new Set(accounts.filter((a) => a.type === "savings").map((a) => a.id)),
     [accounts],
   );
+  const loanIds = useMemo(
+    () => new Set(accounts.filter((a) => a.type === "loan").map((a) => a.id)),
+    [accounts],
+  );
   const roll = useMemo(
-    () => rollup(transactions, month, undefined, savingsIds),
-    [transactions, month, savingsIds],
+    () => rollup(transactions, month, undefined, savingsIds, loanIds),
+    [transactions, month, savingsIds, loanIds],
   );
   const categoryById = useMemo(
     () => Object.fromEntries(categories.map((c) => [c.id, c])),
