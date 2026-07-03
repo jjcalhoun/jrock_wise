@@ -17,6 +17,7 @@ import { fmt0, currentMonthKey, addMonth } from "@/lib/format";
 import { Card } from "@/components/ui/Card";
 import { Chip } from "@/components/ui/Chip";
 import { DebtPlanner } from "@/components/debt/DebtPlanner";
+import { InvestmentCalculator } from "@/components/debt/InvestmentCalculator";
 
 export function DebtScreen() {
   const { data: accounts = [] } = useAccounts();
@@ -138,6 +139,9 @@ export function DebtScreen() {
               Snowball (smallest first)
             </Chip>
           </div>
+
+          {/* Investments tile — projection to retirement */}
+          <InvestmentCalculator settings={settings} />
 
           {/* Interest paid — read-only, never counts toward the budget */}
           {interest.ytd > 0 && (

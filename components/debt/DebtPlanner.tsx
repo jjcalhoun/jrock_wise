@@ -235,31 +235,6 @@ export function DebtPlanner({
         colors={DEBT_COLORS}
       />
 
-      {/* Investments inputs */}
-      <section className="space-y-2">
-        <h2 className="text-sm font-semibold" style={{ color: "var(--color-text)" }}>Investments</h2>
-        <Card className="p-4 flex gap-3">
-          <div className="flex-1">
-            <Input
-              label="Balance"
-              inputMode="decimal"
-              value={invBal}
-              onChange={(e) => setInvBal(e.target.value)}
-              onBlur={() => updateSettings.mutate({ investments_balance: parseFloat(invBal) || 0 })}
-            />
-          </div>
-          <div className="flex-1">
-            <Input
-              label="Return %"
-              inputMode="decimal"
-              value={invRet}
-              onChange={(e) => setInvRet(e.target.value)}
-              onBlur={() => updateSettings.mutate({ investments_return: parseFloat(invRet) || 0 })}
-            />
-          </div>
-        </Card>
-      </section>
-
       {/* Debts — editable minimum payment */}
       <section className="space-y-2">
         <h2 className="text-sm font-semibold" style={{ color: "var(--color-text)" }}>Debts</h2>

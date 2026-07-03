@@ -108,6 +108,10 @@ export interface Settings {
   autocategorize_imports: boolean;
   investments_balance: number;
   investments_return: number;
+  invest_monthly: number;
+  invest_employer_match: number;
+  invest_current_age?: number | null;
+  invest_retire_age?: number | null;
   surplus_savings_pct: number;
   surplus_investments_pct: number;
   updated_at: string;
