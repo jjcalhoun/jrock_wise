@@ -43,8 +43,42 @@ export function ProfileScreen() {
         Profile
       </h1>
 
-      {/* Two-column on desktop: accounts on the right, everything else left */}
+      {/* Order: Theme → Settings → Accounts → Sign out.
+          Two-column on desktop: accounts on the right, theme + settings left. */}
       <div className="lg:grid lg:grid-cols-2 lg:gap-5 lg:items-start space-y-5 lg:space-y-0">
+
+      {/* Left column on desktop: theme, then settings */}
+      <div className="lg:order-1 space-y-5">
+      {/* Theme */}
+      <section className="space-y-3">
+        <h2 className="text-sm font-semibold" style={{ color: "var(--color-text)" }}>
+          Theme
+        </h2>
+        <div className="flex gap-2">
+          {(["system", "light", "dark"] as ThemeMode[]).map((m) => (
+            <Chip key={m} active={themeMode === m} onClick={() => setThemeMode(m)}>
+              {m === "system" ? "Device" : m === "light" ? "Light" : "Dark"}
+            </Chip>
+          ))}
+        </div>
+      </section>
+
+      {/* Settings */}
+      <section className="space-y-3">
+        <h2 className="text-sm font-semibold" style={{ color: "var(--color-text)" }}>
+          Settings
+        </h2>
+        <Card className="divide-y" style={{ borderColor: "var(--color-hairline)" }}>
+          <SettingRow icon="tune" label="Budget plan" onClick={() => setSheet("budget")} />
+          <SettingRow icon="category" label="Manage categories" onClick={() => setSheet("categories")} />
+          <SettingRow icon="account_balance" label="Bank connections" onClick={() => setSheet("connections")} />
+          <SettingRow icon="repeat" label="Recurring transactions" onClick={() => setSheet("recurring")} />
+          <SettingRow icon="upload_file" label="Import CSV" onClick={() => setSheet("import")} />
+          <SettingRow icon="event" label="Import start date" onClick={() => setSheet("importDate")} />
+          <SettingRow icon="delete_sweep" label="Delete all transactions" onClick={() => setSheet("deleteAll")} />
+        </Card>
+      </section>
+      </div>{/* left column */}
 
       {/* Accounts (right column on desktop) */}
       <section className="space-y-3 lg:order-2">
@@ -93,46 +127,14 @@ export function ProfileScreen() {
           </Card>
         )}
       </section>
+      </div>{/* dashboard grid */}
 
-      {/* Left column on desktop: settings, theme, install, sign out */}
-      <div className="lg:order-1 space-y-5">
-      {/* Settings */}
-      <section className="space-y-3">
-        <h2 className="text-sm font-semibold" style={{ color: "var(--color-text)" }}>
-          Settings
-        </h2>
-        <Card className="divide-y" style={{ borderColor: "var(--color-hairline)" }}>
-          <SettingRow icon="tune" label="Budget plan" onClick={() => setSheet("budget")} />
-          <SettingRow icon="category" label="Manage categories" onClick={() => setSheet("categories")} />
-          <SettingRow icon="account_balance" label="Bank connections" onClick={() => setSheet("connections")} />
-          <SettingRow icon="repeat" label="Recurring transactions" onClick={() => setSheet("recurring")} />
-          <SettingRow icon="upload_file" label="Import CSV" onClick={() => setSheet("import")} />
-          <SettingRow icon="event" label="Import start date" onClick={() => setSheet("importDate")} />
-          <SettingRow icon="delete_sweep" label="Delete all transactions" onClick={() => setSheet("deleteAll")} />
-        </Card>
-      </section>
-
-      {/* Theme */}
-      <section className="space-y-3">
-        <h2 className="text-sm font-semibold" style={{ color: "var(--color-text)" }}>
-          Theme
-        </h2>
-        <div className="flex gap-2">
-          {(["system", "light", "dark"] as ThemeMode[]).map((m) => (
-            <Chip key={m} active={themeMode === m} onClick={() => setThemeMode(m)}>
-              {m === "system" ? "Device" : m === "light" ? "Light" : "Dark"}
-            </Chip>
-          ))}
-        </div>
-      </section>
-
+      {/* Install + sign out (full width, below) */}
       <InstallButton />
 
       <Button variant="secondary" fullWidth onClick={signOut}>
         Sign out
       </Button>
-      </div>{/* left column */}
-      </div>{/* dashboard grid */}
 
       {editingAccount && (
         <AccountEditor
