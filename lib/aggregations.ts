@@ -116,12 +116,19 @@ export function cashOut(
   accountType: Record<string, AccountType>,
   categoryById: Record<string, { name: string; color: string; icon: string }>,
   month?: string,
-): { segments: CashOutSegment[]; total: number } {
+): { segments: CashOutSegment[]; total: number; txnsByKey: Record<string, Transaction[]> } {
   const acc = new Map<string, CashOutSegment>();
-  const add = (seg: Omit<CashOutSegment, "value">, value: number) => {
+  const txnsByKey: Record<string, Transaction[]> = {};
+  const seenByKey: Record<string, Set<string>> = {};
+  const add = (seg: Omit<CashOutSegment, "value">, value: number, txn: Transaction) => {
     const cur = acc.get(seg.key);
     if (cur) cur.value += value;
     else acc.set(seg.key, { ...seg, value });
+    const seen = (seenByKey[seg.key] ??= new Set());
+    if (!seen.has(txn.id)) {
+      seen.add(txn.id);
+      (txnsByKey[seg.key] ??= []).push(txn);
+    }
   };
   const isAsset = (t?: AccountType) => t === "checking" || t === "savings" || t === "cash";
 
@@ -139,6 +146,7 @@ export function cashOut(
         add(
           { key: `cat:${split.category_id}`, label: cat.name, color: cat.color, icon: cat.icon },
           -split.amount, // expense split neg → positive cash out; refund claws back
+          txn,
         );
       }
     } else if (txn.type === "transfer") {
@@ -147,14 +155,14 @@ export function cashOut(
       const destType = txn.transfer_account_id ? accountType[txn.transfer_account_id] : undefined;
       const bucket =
         destType === "credit" ? "credit" : destType === "loan" ? "loan" : destType === "savings" ? "savings" : "transfer";
-      add(DEST_SEGMENTS[bucket], -txn.amount);
+      add(DEST_SEGMENTS[bucket], -txn.amount, txn);
     }
     // income is not cash out
   }
 
   const segments = [...acc.values()].filter((s) => s.value > 0).sort((a, b) => b.value - a.value);
   const total = segments.reduce((s, c) => s + c.value, 0);
-  return { segments, total };
+  return { segments, total, txnsByKey };
 }
 
 /**

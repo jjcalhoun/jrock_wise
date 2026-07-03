@@ -16,6 +16,8 @@ import { Card } from "@/components/ui/Card";
 import { ProgressBar } from "@/components/ui/ProgressBar";
 import { Gauge } from "@/components/insights/Gauge";
 import { CategoryDetail } from "@/components/insights/CategoryDetail";
+import { CashOutDetail } from "@/components/insights/CashOutDetail";
+import type { CashOutSegment } from "@/lib/aggregations";
 import { GaugeLoader } from "@/components/ui/GaugeLoader";
 import type { BucketType, Category } from "@/lib/types";
 
@@ -30,6 +32,7 @@ export function InsightsScreen() {
   const thisMonth = currentMonthKey();
   const [month, setMonth] = useState(thisMonth);
   const [detail, setDetail] = useState<Category | null>(null);
+  const [cashDetail, setCashDetail] = useState<CashOutSegment | null>(null);
   const [view, setView] = useState<"budget" | "cashout">("budget");
 
   const isCurrent = month === thisMonth;
@@ -77,6 +80,10 @@ export function InsightsScreen() {
   // "Cash out" lens — where money actually left your accounts this month.
   const accountType = useMemo(
     () => Object.fromEntries(accounts.map((a) => [a.id, a.type])),
+    [accounts],
+  );
+  const accountNameById = useMemo(
+    () => Object.fromEntries(accounts.map((a) => [a.id, a.name])),
     [accounts],
   );
   const cash = useMemo(
@@ -157,7 +164,11 @@ export function InsightsScreen() {
             Where your cash went{cash.total === 0 ? " — no cash movement this month" : ""}
           </p>
           {cash.segments.map((s) => (
-            <div key={s.key} className="flex items-center gap-2.5">
+            <button
+              key={s.key}
+              onClick={() => setCashDetail(s)}
+              className="w-full flex items-center gap-2.5 text-left active:opacity-70"
+            >
               <span
                 className="inline-flex items-center justify-center w-7 h-7 rounded-full shrink-0"
                 style={{ background: `${s.color}22` }}
@@ -172,7 +183,10 @@ export function InsightsScreen() {
               <span className="font-figure text-sm font-semibold" style={{ color: "var(--color-text)" }}>
                 {fmt(s.value)}
               </span>
-            </div>
+              <span className="material-symbols-outlined shrink-0" style={{ fontSize: 16, color: "var(--color-faint)" }}>
+                chevron_right
+              </span>
+            </button>
           ))}
           <p className="text-[11px] pt-1" style={{ color: "var(--color-faint)" }}>
             Cash that left your checking, savings & cash accounts. Credit-card
@@ -280,6 +294,15 @@ export function InsightsScreen() {
           month={month}
           monthlyTarget={categoryBudgets[detail.id] ?? 0}
           onClose={() => setDetail(null)}
+        />
+      )}
+      {cashDetail && (
+        <CashOutDetail
+          segment={cashDetail}
+          transactions={cash.txnsByKey[cashDetail.key] ?? []}
+          month={month}
+          accountNameById={accountNameById}
+          onClose={() => setCashDetail(null)}
         />
       )}
     </main>
