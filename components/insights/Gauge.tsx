@@ -72,13 +72,15 @@ const pct = (v: number, total: number) => `${(v / total) * 100}%`;
 export function Gauge({ petals, income, onPetalClick }: Props) {
   const [active, setActive] = useState<string | null>(null);
 
+  // Petals are sized to scale by actual spend; the arc's full length is expected
+  // income, so the neutral remainder is income not yet spent.
   const sized = petals
-    .map((p) => ({ ...p, size: Math.max(p.budget, p.actual) }))
+    .map((p) => ({ ...p, size: Math.max(0, p.actual) }))
     .filter((p) => p.size > 0)
     .sort((a, b) => b.size - a.size);
 
   const totalSize = sized.reduce((s, p) => s + p.size, 0);
-  const totalActual = petals.reduce((s, p) => s + Math.max(0, p.actual), 0);
+  const totalActual = totalSize;
   const denom = Math.max(income, totalSize, 1);
   const remainderSpan = ((denom - totalSize) / denom) * 180;
 
@@ -88,10 +90,8 @@ export function Gauge({ petals, income, onPetalClick }: Props) {
     const aH = cursor - GAP / 2;
     const aL = cursor - span + GAP / 2;
     const mid = (aH + aL) / 2;
-    const actualFrac = p.size > 0 ? Math.min(1, Math.max(0, p.actual) / p.size) : 0;
-    const actualLow = aH - (aH - aL) * actualFrac;
     cursor -= span;
-    return { p, aH, aL, mid, span, actualFrac, actualLow };
+    return { p, aH, aL, mid, span };
   });
 
   const activePetal = wedges.find((w) => w.p.key === active);
@@ -108,12 +108,8 @@ export function Gauge({ petals, income, onPetalClick }: Props) {
         />
         {wedges.map((w) => (
           <g key={w.p.key}>
-            {/* faint full-budget footprint */}
-            <path d={wedgePath(w.aH, w.aL)} fill={w.p.color} opacity={0.3} />
-            {/* solid actual fill */}
-            {w.actualFrac > 0.01 && (
-              <path d={wedgePath(w.aH, w.actualLow)} fill={w.p.color} />
-            )}
+            {/* solid petal, sized by actual spend */}
+            <path d={wedgePath(w.aH, w.aL)} fill={w.p.color} />
             {/* active ring */}
             {active === w.p.key && (
               <path d={wedgePath(w.aH, w.aL)} fill="none" stroke="#fff" strokeOpacity={0.5} strokeWidth={1.5} />
@@ -161,8 +157,8 @@ export function Gauge({ petals, income, onPetalClick }: Props) {
         ) : null,
       )}
 
-      {/* center readout */}
-      <div className="absolute inset-x-0 text-center" style={{ top: pct(CY - 92, VB_H) }}>
+      {/* center readout — must not intercept taps meant for the petals behind it */}
+      <div className="absolute inset-x-0 text-center pointer-events-none" style={{ top: pct(CY - 92, VB_H) }}>
         <p className="text-xs" style={{ color: "var(--color-muted)" }}>
           Spent
         </p>
