@@ -61,12 +61,16 @@ export function DebtScreen() {
   );
 
   // Average net available per month over the last 3 months (view only).
+  // The current month uses expected income (it's still in progress); completed
+  // months use only what actually came in.
   const avgNet3 = useMemo(() => {
-    const income = budget?.income ?? 0;
+    const expected = budget?.income ?? 0;
     const now = currentMonthKey();
-    const nets = [0, 1, 2].map(
-      (i) => income - rollup(transactions, addMonth(now, -i), undefined, savingsIds, loanIds).spend,
-    );
+    const nets = [0, 1, 2].map((i) => {
+      const r = rollup(transactions, addMonth(now, -i), undefined, savingsIds, loanIds);
+      const income = i === 0 ? expected : r.income;
+      return income - r.spend;
+    });
     return nets.reduce((a, b) => a + b, 0) / nets.length;
   }, [transactions, budget, savingsIds, loanIds]);
 
