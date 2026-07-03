@@ -48,12 +48,15 @@ export async function syncUser(
       supabase.from("settings").select("autocategorize_imports").eq("user_id", userId).single(),
       supabase.from("categories").select("*").eq("user_id", userId).eq("is_archived", false),
       supabase.from("simplefin_account_map").select("*").eq("user_id", userId),
-      supabase.from("accounts").select("id, type").eq("user_id", userId),
+      supabase.from("accounts").select("id, type, live_balance").eq("user_id", userId),
     ]);
   const autocategorize = settings?.autocategorize_imports ?? true;
   const cats = (categories ?? []) as Category[];
   const typeFor = new Map(
     (accounts ?? []).map((a) => [a.id as string, a.type as Account["type"]]),
+  );
+  const balanceFor = new Map(
+    (accounts ?? []).map((a) => [a.id as string, a.live_balance as number | null]),
   );
   const accountFor = new Map(
     (maps ?? []).map((m) => [m.simplefin_account_id as string, m.account_id as string]),
@@ -97,15 +100,20 @@ export async function syncUser(
       if (!ourAccountId) continue; // unmapped — skip until the user maps it
 
       // Live balance (decision 1: trust SimpleFIN's balance for linked accts).
+      // Always record the value + the bank's as-of date (so freshness is
+      // visible), but only *count* it as updated when the number actually
+      // changed — so "N balances updated" reflects real movement, not writes.
+      const newBalance = Number(acct.balance);
+      const prevBalance = balanceFor.get(ourAccountId);
       const { error: balErr } = await supabase
         .from("accounts")
         .update({
-          live_balance: Number(acct.balance),
+          live_balance: newBalance,
           live_balance_at: new Date(acct["balance-date"] * 1000).toISOString(),
         })
         .eq("id", ourAccountId)
         .eq("user_id", userId);
-      if (!balErr) balancesUpdated++;
+      if (!balErr && prevBalance !== newBalance) balancesUpdated++;
 
       const incoming = acct.transactions ?? [];
       if (incoming.length === 0) continue;
