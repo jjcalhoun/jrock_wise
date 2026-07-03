@@ -153,8 +153,8 @@ export function HomeScreen() {
           />
           <MiniCard
             label="Leftover"
-            value={fmt0(income - roll.spend)}
-            accent={income - roll.spend >= 0 ? "var(--color-positive)" : "var(--color-danger)"}
+            value={fmt0(roll.income - roll.spend)}
+            accent={roll.income - roll.spend >= 0 ? "var(--color-positive)" : "var(--color-danger)"}
           />
         </div>
       )}
