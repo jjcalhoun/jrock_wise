@@ -254,14 +254,40 @@ export function useUpdateTransaction() {
   });
 }
 
+/** Expand a set of transaction ids to also include the other side of any
+ *  transfer (rows sharing a transfer_group_id), so deleting a transfer removes
+ *  both the debit and credit rows — done at the DB level so it holds even when
+ *  the counterpart isn't loaded in the client. */
+async function withTransferCounterparts(ids: string[]): Promise<string[]> {
+  if (ids.length === 0) return ids;
+  const { data: rows } = await supabase
+    .from("transactions")
+    .select("transfer_group_id")
+    .in("id", ids);
+  const groups = [
+    ...new Set(
+      (rows ?? []).map((r) => r.transfer_group_id as string | null).filter((g): g is string => !!g),
+    ),
+  ];
+  if (groups.length === 0) return ids;
+  const { data: sides } = await supabase
+    .from("transactions")
+    .select("id")
+    .in("transfer_group_id", groups);
+  const all = new Set(ids);
+  for (const r of sides ?? []) all.add(r.id as string);
+  return [...all];
+}
+
 export function useDeleteTransaction() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (id: string) => {
+      const ids = await withTransferCounterparts([id]);
       const { error } = await supabase
         .from("transactions")
         .delete()
-        .eq("id", id);
+        .in("id", ids);
       if (error) throw error;
     },
     onSuccess: () => {
@@ -278,7 +304,8 @@ export function useDeleteTransactions() {
   return useMutation({
     mutationFn: async (ids: string[]) => {
       if (ids.length === 0) return;
-      const { error } = await supabase.from("transactions").delete().in("id", ids);
+      const all = await withTransferCounterparts(ids);
+      const { error } = await supabase.from("transactions").delete().in("id", all);
       if (error) throw error;
     },
     onSuccess: () => {

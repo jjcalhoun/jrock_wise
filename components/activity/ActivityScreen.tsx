@@ -5,6 +5,7 @@ import { useSearchParams, useRouter } from "next/navigation";
 import {
   useTransactions,
   useCategories,
+  useAccounts,
   useDeleteTransactions,
 } from "@/hooks/useSupabaseData";
 import { useTxnWindow } from "@/components/providers";
@@ -28,6 +29,7 @@ export function ActivityScreen() {
   const router = useRouter();
   const { data: transactions = [], isLoading } = useTransactions();
   const { data: categories = [] } = useCategories();
+  const { data: accounts = [] } = useAccounts();
   const { ensureSince } = useTxnWindow();
   const isDesktop = useIsDesktop();
   const [query, setQuery] = useState("");
@@ -93,6 +95,10 @@ export function ActivityScreen() {
     () => Object.fromEntries(categories.map((c) => [c.id, c])),
     [categories],
   );
+  const accountNameById = useMemo(
+    () => Object.fromEntries(accounts.map((a) => [a.id, a.name])),
+    [accounts],
+  );
 
   const filtered = useMemo(() => {
     return transactions.filter((t) => {
@@ -116,6 +122,27 @@ export function ActivityScreen() {
       return true;
     });
   }, [transactions, query, bucket, typeParam, monthParam, filters]);
+
+  // A transfer is stored as two linked rows (one per account). Collapse each
+  // transfer_group_id to a single Activity entry — prefer the outflow (debit)
+  // side so the "from → to" reads in the natural direction. Both DB rows remain
+  // for per-account balances; this is display-only.
+  const visible = useMemo(() => {
+    // Choose one representative row per transfer group: the outflow (debit) side
+    // when present, so the "from → to" label reads in the natural direction.
+    const repForGroup = new Map<string, Transaction>();
+    for (const t of filtered) {
+      const g = t.transfer_group_id;
+      if (!g) continue;
+      const cur = repForGroup.get(g);
+      if (!cur || (cur.amount >= 0 && t.amount < 0)) repForGroup.set(g, t);
+    }
+    // Keep source order; drop the non-representative side of each group.
+    return filtered.filter((t) => {
+      const g = t.transfer_group_id;
+      return !g || repForGroup.get(g)?.id === t.id;
+    });
+  }, [filtered]);
 
   return (
     <main className="p-4 space-y-4">
@@ -205,7 +232,7 @@ export function ActivityScreen() {
 
       {isLoading ? (
         <GaugeLoader />
-      ) : filtered.length === 0 ? (
+      ) : visible.length === 0 ? (
         <p className="text-sm text-center py-8" style={{ color: "var(--color-muted)" }}>
           {transactions.length === 0
             ? "No transactions yet. Tap + New to add one."
@@ -213,7 +240,7 @@ export function ActivityScreen() {
         </p>
       ) : (
         <div className="grid grid-cols-3 xl:grid-cols-4 gap-3">
-          {filtered.map((t) => {
+          {visible.map((t) => {
             const isSel = selected.has(t.id);
             const isOpen = !selectMode && editTxn?.id === t.id;
             return (
@@ -221,6 +248,7 @@ export function ActivityScreen() {
                 <TxnTile
                   txn={t}
                   categoryById={categoryById}
+                  accountNameById={accountNameById}
                   onClick={() => (selectMode ? toggleSelected(t.id) : setEditTxn(t))}
                 />
                 {isOpen && (
