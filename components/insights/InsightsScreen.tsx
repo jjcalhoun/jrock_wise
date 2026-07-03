@@ -143,7 +143,7 @@ export function InsightsScreen() {
           <Gauge
             segments={cashSegments}
             spent={cash.total}
-            budget={Math.max(income, cash.total)}
+            budget={roll.income}
             label="Cash out"
             budgetLabel="income"
           />
