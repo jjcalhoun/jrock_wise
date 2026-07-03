@@ -9,17 +9,18 @@ import {
   useCategoryBudgets,
 } from "@/hooks/useSupabaseData";
 import { useTxnWindow } from "@/components/providers";
-import { rollup, cashOut } from "@/lib/aggregations";
+import { rollup, loanPaydown, monthKey } from "@/lib/aggregations";
 import { fmt, fmt0, monthLabel, currentMonthKey, addMonth } from "@/lib/format";
 import { BUCKETS } from "@/lib/buckets";
 import { Card } from "@/components/ui/Card";
 import { ProgressBar } from "@/components/ui/ProgressBar";
-import { Gauge } from "@/components/insights/Gauge";
+import { Gauge, type GaugePetal } from "@/components/insights/Gauge";
 import { CategoryDetail } from "@/components/insights/CategoryDetail";
-import { CashOutDetail } from "@/components/insights/CashOutDetail";
-import type { CashOutSegment } from "@/lib/aggregations";
+import { SegmentDetail, type DetailSegment } from "@/components/insights/SegmentDetail";
 import { GaugeLoader } from "@/components/ui/GaugeLoader";
 import type { BucketType, Category } from "@/lib/types";
+
+const DEBT_PETAL = { color: "#F97316", icon: "account_balance", label: "Debt payments" };
 
 export function InsightsScreen() {
   const { data: transactions = [], isLoading } = useTransactions();
@@ -32,8 +33,7 @@ export function InsightsScreen() {
   const thisMonth = currentMonthKey();
   const [month, setMonth] = useState(thisMonth);
   const [detail, setDetail] = useState<Category | null>(null);
-  const [cashDetail, setCashDetail] = useState<CashOutSegment | null>(null);
-  const [view, setView] = useState<"budget" | "cashout">("budget");
+  const [debtOpen, setDebtOpen] = useState(false);
 
   const isCurrent = month === thisMonth;
   const canGoForward = month < thisMonth;
@@ -59,10 +59,80 @@ export function InsightsScreen() {
     () => Object.fromEntries(categories.map((c) => [c.id, c])),
     [categories],
   );
+  const accountNameById = useMemo(
+    () => Object.fromEntries(accounts.map((a) => [a.id, a.name])),
+    [accounts],
+  );
 
-  // budget Y for the gauge: sum of category targets, else estimated income
-  const totalCatBudget = Object.values(categoryBudgets).reduce((s, v) => s + v, 0);
-  const gaugeBudget = totalCatBudget > 0 ? totalCatBudget : budget?.income ?? 0;
+  const income = budget?.income ?? 0;
+  const available = isCurrent ? income - roll.spend : roll.income - roll.spend;
+
+  // 3-month averages (the 3 completed months before the selected one).
+  const avg3ByCat = useMemo(() => {
+    const acc: Record<string, number> = {};
+    for (let i = 1; i <= 3; i++) {
+      const r = rollup(transactions, addMonth(month, -i), undefined, savingsIds, loanIds);
+      for (const [id, v] of Object.entries(r.byCat)) if (v > 0) acc[id] = (acc[id] ?? 0) + v;
+    }
+    const out: Record<string, number> = {};
+    for (const id in acc) out[id] = acc[id] / 3;
+    return out;
+  }, [transactions, month, savingsIds, loanIds]);
+
+  // Debt: actual = this month's loan paydowns; budget = sum of loan min payments.
+  const debt = useMemo(() => {
+    const loans = accounts.filter((a) => a.type === "loan");
+    const byAccount: Record<string, number> = {};
+    const txns = [];
+    for (const t of transactions) {
+      if (monthKey(t.date) !== month) continue;
+      if (t.type === "transfer" && t.amount > 0 && loanIds.has(t.account_id)) {
+        byAccount[t.account_id] = (byAccount[t.account_id] ?? 0) + t.amount;
+        txns.push(t);
+      }
+    }
+    const actual = Object.values(byAccount).reduce((s, v) => s + v, 0);
+    const budgetAmt = loans.reduce((s, a) => s + (a.min_payment ?? 0), 0);
+    let avg = 0;
+    for (let i = 1; i <= 3; i++) avg += loanPaydown(transactions, loanIds, addMonth(month, -i));
+    const breakdown = loans
+      .filter((a) => (byAccount[a.id] ?? 0) > 0)
+      .map((a) => ({ label: a.name, value: byAccount[a.id] }))
+      .sort((x, y) => y.value - x.value);
+    return { actual, budget: budgetAmt, avg3: avg / 3, breakdown, txns };
+  }, [transactions, accounts, loanIds, month]);
+
+  // Petals: every budgeted or spent category, plus a combined Debt payments petal.
+  const petals: GaugePetal[] = useMemo(() => {
+    const keys = new Set([
+      ...Object.keys(categoryBudgets).filter((id) => (categoryBudgets[id] ?? 0) > 0),
+      ...Object.keys(roll.byCat).filter((id) => roll.byCat[id] > 0),
+    ]);
+    const cat: GaugePetal[] = [...keys].flatMap((id) => {
+      const c = categoryById[id];
+      if (!c) return [];
+      return [{
+        key: `cat:${id}`,
+        label: c.name,
+        color: c.color,
+        icon: c.icon,
+        actual: Math.max(0, roll.byCat[id] ?? 0),
+        budget: categoryBudgets[id] ?? 0,
+        avg3: avg3ByCat[id] ?? 0,
+      }];
+    });
+    if (debt.budget > 0 || debt.actual > 0) {
+      cat.push({
+        key: "debt",
+        ...DEBT_PETAL,
+        actual: debt.actual,
+        budget: debt.budget,
+        avg3: debt.avg3,
+        breakdown: debt.breakdown,
+      });
+    }
+    return cat;
+  }, [categoryBudgets, roll.byCat, categoryById, avg3ByCat, debt]);
 
   const ranked = useMemo(() => {
     return Object.entries(roll.byCat)
@@ -71,29 +141,13 @@ export function InsightsScreen() {
       .sort((a, b) => b.spend - a.spend);
   }, [roll.byCat, categoryById]);
 
-  const gaugeSegments = ranked.map((r) => ({
-    color: r.cat.color,
-    value: r.spend,
-    icon: r.cat.icon,
-  }));
+  function onPetalClick(key: string) {
+    if (key === "debt") return setDebtOpen(true);
+    const c = categoryById[key.slice(4)];
+    if (c) setDetail(c);
+  }
 
-  // "Cash out" lens — where money actually left your accounts this month.
-  const accountType = useMemo(
-    () => Object.fromEntries(accounts.map((a) => [a.id, a.type])),
-    [accounts],
-  );
-  const accountNameById = useMemo(
-    () => Object.fromEntries(accounts.map((a) => [a.id, a.name])),
-    [accounts],
-  );
-  const cash = useMemo(
-    () => cashOut(transactions, accountType, categoryById, month),
-    [transactions, accountType, categoryById, month],
-  );
-  const cashSegments = cash.segments.map((s) => ({ color: s.color, value: s.value, icon: s.icon }));
-
-  const income = budget?.income ?? 0;
-  const available = isCurrent ? income - roll.spend : roll.income - roll.spend;
+  const hasContent = petals.length > 0;
 
   if (isLoading) return <GaugeLoader />;
 
@@ -122,78 +176,10 @@ export function InsightsScreen() {
       {/* Two-column dashboard on desktop */}
       <div className="lg:grid lg:grid-cols-2 lg:gap-5 lg:items-start space-y-5 lg:space-y-0">
         <div className="space-y-5">
-      {/* Budget / Cash-out toggle */}
-      <div
-        className="inline-flex p-0.5 rounded-full text-xs font-semibold"
-        style={{ background: "var(--color-chip-bg)" }}
-      >
-        {([["budget", "Budget"], ["cashout", "Cash out"]] as const).map(([v, lbl]) => (
-          <button
-            key={v}
-            onClick={() => setView(v)}
-            className="px-3 py-1.5 rounded-full transition-colors"
-            style={{
-              background: view === v ? "var(--color-primary)" : "transparent",
-              color: view === v ? "#fff" : "var(--color-muted)",
-            }}
-          >
-            {lbl}
-          </button>
-        ))}
-      </div>
-
-      {/* Gauge */}
+      {/* Budget arc — plan vs actual, incl. debt payments */}
       <Card className="px-3 pt-3 pb-2">
-        {view === "budget" ? (
-          <Gauge segments={gaugeSegments} spent={roll.spend} budget={gaugeBudget} />
-        ) : (
-          <Gauge
-            segments={cashSegments}
-            spent={cash.total}
-            budget={roll.income}
-            label="Cash out"
-            budgetLabel="income"
-          />
-        )}
+        <Gauge petals={petals} income={income || roll.spend} onPetalClick={onPetalClick} />
       </Card>
-
-      {/* Cash-out breakdown — itemizes where money left, incl. debt payments */}
-      {view === "cashout" && (
-        <Card className="p-4 space-y-2.5">
-          <p className="text-xs" style={{ color: "var(--color-muted)" }}>
-            Where your cash went{cash.total === 0 ? " — no cash movement this month" : ""}
-          </p>
-          {cash.segments.map((s) => (
-            <button
-              key={s.key}
-              onClick={() => setCashDetail(s)}
-              className="w-full flex items-center gap-2.5 text-left active:opacity-70"
-            >
-              <span
-                className="inline-flex items-center justify-center w-7 h-7 rounded-full shrink-0"
-                style={{ background: `${s.color}22` }}
-              >
-                <span className="material-symbols-outlined" style={{ fontSize: 16, color: s.color }}>
-                  {s.icon}
-                </span>
-              </span>
-              <span className="text-sm flex-1 truncate" style={{ color: "var(--color-text)" }}>
-                {s.label}
-              </span>
-              <span className="font-figure text-sm font-semibold" style={{ color: "var(--color-text)" }}>
-                {fmt(s.value)}
-              </span>
-              <span className="material-symbols-outlined shrink-0" style={{ fontSize: 16, color: "var(--color-faint)" }}>
-                chevron_right
-              </span>
-            </button>
-          ))}
-          <p className="text-[11px] pt-1" style={{ color: "var(--color-faint)" }}>
-            Cash that left your checking, savings & cash accounts. Credit-card
-            purchases aren’t here — they show up when you pay the card.
-          </p>
-        </Card>
-      )}
 
       {/* Available / Net card */}
       <Card className="p-4">
@@ -230,12 +216,36 @@ export function InsightsScreen() {
 
         <div className="space-y-5">
       {/* Spending categories */}
-      {ranked.length > 0 && (
+      {(ranked.length > 0 || debt.actual > 0) && (
         <section className="space-y-3">
           <h2 className="text-sm font-semibold" style={{ color: "var(--color-text)" }}>
             Spending categories
           </h2>
           <Card className="p-2">
+            {debt.actual > 0 && (
+              <button onClick={() => setDebtOpen(true)} className="w-full text-left px-2 py-2.5">
+                <div className="flex items-center justify-between mb-1.5">
+                  <span className="flex items-center gap-2 text-sm">
+                    <span
+                      className="inline-flex items-center justify-center w-6 h-6 rounded-full"
+                      style={{ background: `${DEBT_PETAL.color}22` }}
+                    >
+                      <span className="material-symbols-outlined" style={{ fontSize: 14, color: DEBT_PETAL.color }}>
+                        {DEBT_PETAL.icon}
+                      </span>
+                    </span>
+                    <span style={{ color: "var(--color-text)" }}>{DEBT_PETAL.label}</span>
+                  </span>
+                  <span className="text-sm font-figure" style={{ color: debt.budget > 0 && debt.actual > debt.budget ? "var(--color-danger)" : "var(--color-text)" }}>
+                    {fmt0(debt.actual)}
+                    {debt.budget > 0 && <span style={{ color: "var(--color-faint)" }}> / {fmt0(debt.budget)}</span>}
+                  </span>
+                </div>
+                {debt.budget > 0 && (
+                  <ProgressBar value={(debt.actual / debt.budget) * 100} color={DEBT_PETAL.color} overBudget={debt.actual > debt.budget} />
+                )}
+              </button>
+            )}
             {ranked.map(({ cat, spend }) => {
               const target = categoryBudgets[cat.id] ?? 0;
               const pct = target > 0 ? (spend / target) * 100 : 0;
@@ -281,9 +291,9 @@ export function InsightsScreen() {
         </div>{/* right column */}
       </div>{/* dashboard grid */}
 
-      {ranked.length === 0 && (
+      {!hasContent && (
         <p className="text-sm text-center py-4" style={{ color: "var(--color-muted)" }}>
-          No spending recorded for {monthLabel(month)}.
+          No spending or budget set for {monthLabel(month)}.
         </p>
       )}
 
@@ -296,13 +306,14 @@ export function InsightsScreen() {
           onClose={() => setDetail(null)}
         />
       )}
-      {cashDetail && (
-        <CashOutDetail
-          segment={cashDetail}
-          transactions={cash.txnsByKey[cashDetail.key] ?? []}
+      {debtOpen && (
+        <SegmentDetail
+          segment={{ ...DEBT_PETAL, value: debt.actual } as DetailSegment}
+          transactions={debt.txns}
           month={month}
           accountNameById={accountNameById}
-          onClose={() => setCashDetail(null)}
+          breakdown={debt.breakdown}
+          onClose={() => setDebtOpen(false)}
         />
       )}
     </main>
