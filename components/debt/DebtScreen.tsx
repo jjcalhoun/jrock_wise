@@ -140,6 +140,16 @@ export function DebtScreen() {
             </Chip>
           </div>
 
+          <DebtPlanner
+            liabilityAccounts={liabilityAccounts}
+            debtBalances={debtBalances}
+            strategy={strategy}
+            avgNet3={avgNet3}
+            startChecking={startChecking}
+            startSavings={startSavings}
+            settings={settings}
+          />
+
           {/* Investments tile — projection to retirement */}
           <InvestmentCalculator settings={settings} />
 
@@ -175,16 +185,6 @@ export function DebtScreen() {
               )}
             </Card>
           )}
-
-          <DebtPlanner
-            liabilityAccounts={liabilityAccounts}
-            debtBalances={debtBalances}
-            strategy={strategy}
-            avgNet3={avgNet3}
-            startChecking={startChecking}
-            startSavings={startSavings}
-            settings={settings}
-          />
         </>
       )}
     </main>
