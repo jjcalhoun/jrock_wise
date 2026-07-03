@@ -11,7 +11,7 @@
  *    (expense negative → positive spend; refund positive → negative spend = claw-back).
  */
 
-import type { Transaction, Account, BucketType, Rollup } from "./types";
+import type { Transaction, Account, AccountType, BucketType, Rollup } from "./types";
 
 /** "YYYY-MM" key for a date string or Date */
 export function monthKey(date: string | Date): string {
@@ -74,6 +74,79 @@ export function rollup(
   }
 
   return { byCat, byBucket, income, spend };
+}
+
+export interface CashOutSegment {
+  key: string;
+  label: string;
+  color: string;
+  icon: string;
+  value: number;
+}
+
+// Fixed slices for cash that leaves an asset account as a transfer, by where
+// it goes. Category-based (real purchases) segments are built from the txns.
+const DEST_SEGMENTS: Record<"credit" | "loan" | "savings" | "transfer", Omit<CashOutSegment, "value">> = {
+  credit: { key: "dest:credit", label: "Credit card payments", color: "#EF4444", icon: "credit_card" },
+  loan: { key: "dest:loan", label: "Loan / HELOC payments", color: "#F97316", icon: "account_balance" },
+  savings: { key: "dest:savings", label: "Savings", color: "#22C55E", icon: "savings" },
+  transfer: { key: "dest:transfer", label: "Transfers", color: "#8B5CF6", icon: "swap_horiz" },
+};
+
+/**
+ * "Where did my cash actually go this month" — a cash-flow lens, distinct from
+ * the budget lens (rollup). Counts money LEAVING your asset accounts
+ * (checking/savings/cash):
+ *   - purchases paid from an asset account → grouped by category
+ *   - a transfer OUT of an asset account → grouped by destination type
+ *     (credit-card payment, loan/HELOC payment, savings, or plain transfer)
+ * and deliberately EXCLUDES credit-card purchases (they sit on the liability and
+ * move no cash until the card is paid), so nothing double-counts.
+ */
+export function cashOut(
+  txns: Transaction[],
+  accountType: Record<string, AccountType>,
+  categoryById: Record<string, { name: string; color: string; icon: string }>,
+  month?: string,
+): { segments: CashOutSegment[]; total: number } {
+  const acc = new Map<string, CashOutSegment>();
+  const add = (seg: Omit<CashOutSegment, "value">, value: number) => {
+    const cur = acc.get(seg.key);
+    if (cur) cur.value += value;
+    else acc.set(seg.key, { ...seg, value });
+  };
+  const isAsset = (t?: AccountType) => t === "checking" || t === "savings" || t === "cash";
+
+  for (const txn of txns) {
+    if (month && monthKey(txn.date) !== month) continue;
+    const at = accountType[txn.account_id];
+
+    if (txn.type === "expense" || txn.type === "refund") {
+      // Only cash purchases (from an asset account) moved money; a charge on a
+      // credit/loan account did not.
+      if (!isAsset(at)) continue;
+      for (const split of txn.splits ?? []) {
+        const cat = categoryById[split.category_id];
+        if (!cat) continue;
+        add(
+          { key: `cat:${split.category_id}`, label: cat.name, color: cat.color, icon: cat.icon },
+          -split.amount, // expense split neg → positive cash out; refund claws back
+        );
+      }
+    } else if (txn.type === "transfer") {
+      // Count only the asset-account outflow leg (cash actually leaving).
+      if (!isAsset(at) || txn.amount >= 0) continue;
+      const destType = txn.transfer_account_id ? accountType[txn.transfer_account_id] : undefined;
+      const bucket =
+        destType === "credit" ? "credit" : destType === "loan" ? "loan" : destType === "savings" ? "savings" : "transfer";
+      add(DEST_SEGMENTS[bucket], -txn.amount);
+    }
+    // income is not cash out
+  }
+
+  const segments = [...acc.values()].filter((s) => s.value > 0).sort((a, b) => b.value - a.value);
+  const total = segments.reduce((s, c) => s + c.value, 0);
+  return { segments, total };
 }
 
 /**
