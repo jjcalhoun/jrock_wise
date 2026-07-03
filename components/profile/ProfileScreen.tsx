@@ -5,7 +5,7 @@ import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
 import { useTheme } from "@/components/providers";
 import { useAccounts, useAccountBalances } from "@/hooks/useSupabaseData";
-import { fmt } from "@/lib/format";
+import { fmt, shortDate } from "@/lib/format";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Chip } from "@/components/ui/Chip";
@@ -114,6 +114,7 @@ export function ProfileScreen() {
                   </p>
                   <p className="text-xs capitalize" style={{ color: "var(--color-faint)" }}>
                     {a.type}{a.last4 ? ` ••${a.last4}` : ""}
+                    {a.live_balance_at ? ` · as of ${shortDate(a.live_balance_at.slice(0, 10))}` : ""}
                   </p>
                 </div>
                 <span
