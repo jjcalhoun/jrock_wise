@@ -7,16 +7,26 @@ import type { Transaction, Category } from "@/lib/types";
 interface Props {
   txn: Transaction;
   categoryById: Record<string, Category>;
+  accountNameById?: Record<string, string>;
   onClick?: () => void;
 }
 
-export function TxnTile({ txn, categoryById, onClick }: Props) {
+export function TxnTile({ txn, categoryById, accountNameById, onClick }: Props) {
+  const isTransfer = txn.type === "transfer";
   const inflow = txn.amount > 0;
   const split = txn.splits ?? [];
   const isSplit = split.length > 1;
   // Interest charges move the account balance but are excluded from the budget.
   const balanceOnly = isInterestPaid(txn);
   const firstCat = split[0] ? categoryById[split[0].category_id] : undefined;
+
+  // A transfer moves money between two accounts. Show it as one "from → to"
+  // line regardless of which side (debit/credit) this row represents.
+  const nameOf = (id?: string | null) => (id ? accountNameById?.[id] : undefined);
+  const fromName = nameOf(inflow ? txn.transfer_account_id : txn.account_id);
+  const toName = nameOf(inflow ? txn.account_id : txn.transfer_account_id);
+  const transferLabel =
+    fromName && toName ? `${fromName} → ${toName}` : txn.merchant || "Transfer";
 
   const color =
     txn.type === "transfer"
@@ -32,9 +42,9 @@ export function TxnTile({ txn, categoryById, onClick }: Props) {
           ? "undo"
           : (firstCat?.icon ?? "receipt_long");
 
-  const label =
-    txn.merchant ||
-    (txn.type === "transfer" ? "Transfer" : firstCat?.name ?? "Uncategorized");
+  const label = isTransfer
+    ? transferLabel
+    : txn.merchant || firstCat?.name || "Uncategorized";
 
   // Reviewed → solid border in the accent color; unreviewed → dashed grey.
   const accent =
@@ -85,6 +95,15 @@ export function TxnTile({ txn, categoryById, onClick }: Props) {
             BALANCE ONLY
           </span>
         )}
+        {isTransfer && (
+          <span
+            className="text-[9px] font-bold px-1.5 py-0.5 rounded"
+            style={{ background: "var(--color-chip-bg)", color: "var(--color-transfer)" }}
+            title="Transfer between accounts — not counted as income or spending"
+          >
+            TRANSFER
+          </span>
+        )}
       </div>
 
       <div className="min-w-0">
@@ -96,9 +115,15 @@ export function TxnTile({ txn, categoryById, onClick }: Props) {
         </p>
         <p
           className="font-figure text-sm font-semibold"
-          style={{ color: inflow ? "var(--color-positive)" : "var(--color-text)" }}
+          style={{
+            color: isTransfer
+              ? "var(--color-transfer)"
+              : inflow
+                ? "var(--color-positive)"
+                : "var(--color-text)",
+          }}
         >
-          {fmt(txn.amount)}
+          {isTransfer ? fmt(Math.abs(txn.amount)) : fmt(txn.amount)}
         </p>
         <p className="text-[10px]" style={{ color: "var(--color-faint)" }}>
           {shortDate(txn.date)}
