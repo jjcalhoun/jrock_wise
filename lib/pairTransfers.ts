@@ -38,6 +38,11 @@ export function pairTransfers(items: PairItem[], windowDays = 5): Pair[] {
     for (const b of items) {
       if (b.id === a.id || matched.has(b.id)) continue;
       if (b.accountId === a.accountId) continue;
+      // A payment's funding side is an outflow (expense) or another transfer —
+      // never a realized income/refund deposit. Excluding those keeps a real
+      // paycheck from being swallowed into a transfer just because its amount
+      // happens to match a payment on another account.
+      if (b.type === "income" || b.type === "refund") continue;
       if (Math.abs(a.amount + b.amount) > 0.001) continue; // opposite magnitudes
       const diff = daysApart(a.date, b.date);
       if (diff > windowDays) continue;
