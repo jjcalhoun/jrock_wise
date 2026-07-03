@@ -1,40 +1,44 @@
 "use client";
 
+import { useState } from "react";
 import { fmt0 } from "@/lib/format";
 
-export interface GaugeSegment {
+export interface GaugePetal {
+  key: string;
+  label: string;
   color: string;
-  value: number; // spend for this category
-  icon: string; // Material Symbols name
+  icon: string;
+  actual: number; // spent this month
+  budget: number; // budgeted amount
+  avg3: number; // 3-month average
+  breakdown?: { label: string; value: number }[]; // optional detail (e.g. per-loan)
 }
 
 interface Props {
-  segments: GaugeSegment[];
-  spent: number;
-  budget: number;
-  label?: string; // center readout heading (default "Spent")
-  budgetLabel?: string; // denominator word (default "budget")
+  petals: GaugePetal[];
+  income: number; // expected income — the arc's baseline scale
+  onPetalClick?: (key: string) => void;
 }
 
-/* The half-circle is divided into proportional wedges (each category's width
-   grows with its spend; a neutral "remaining" wedge fills the rest of the
-   budget). Everything — wedges, icons, and the readout — lives in one SVG with
-   a viewBox, so the whole gauge scales to fill its container width. */
-const VB_W = 360; // viewBox units
-const VB_H = 222;
+/* Budget arc. The whole half-circle represents expected income; each petal is
+   sized to scale by max(budget, actual), so the plan is visible from day one and
+   a petal grows past its budget when overspent. A solid inner arc fills toward
+   the budget as money is actually spent. Hover/tap a petal for actual-vs-budget
+   and the 3-month average. */
+const VB_W = 360;
+const VB_H = 232;
 const CX = VB_W / 2;
 const CY = 196;
-const RC = 156; // centerline radius
-const TH = 42; // wedge thickness
-const GAP = 4; // degrees of gap between wedges
-const MIN_CAT = 26; // min degrees per category so its icon stays visible
-const CORNER = 10; // wedge corner radius
-const MAX_PETALS = 7;
-const REMAIN_COLOR = "#9A938A";
+const RC = 156;
+const TH = 42;
+const GAP = 3.5;
+const CORNER = 10;
+const MIN_ICON_DEG = 15; // below this a petal is color-only (no icon)
 
 const Ri = RC - TH / 2;
 const Ro = RC + TH / 2;
 const DEG = 180 / Math.PI;
+const REMAIN_COLOR = "#9A938A";
 
 const pt = (r: number, deg: number): [number, number] => {
   const a = (deg * Math.PI) / 180;
@@ -63,68 +67,90 @@ function wedgePath(aH: number, aL: number): string {
   );
 }
 
-export function Gauge({ segments, spent, budget, label = "Spent", budgetLabel = "budget" }: Props) {
-  const cats = [...segments]
-    .filter((s) => s.value > 0)
-    .sort((a, b) => b.value - a.value)
-    .slice(0, MAX_PETALS);
+const pct = (v: number, total: number) => `${(v / total) * 100}%`;
 
-  const totalSpent = cats.reduce((s, c) => s + c.value, 0);
-  const denom = Math.max(budget, totalSpent, 1);
-  const leftover = Math.max(0, denom - totalSpent);
+export function Gauge({ petals, income, onPetalClick }: Props) {
+  const [active, setActive] = useState<string | null>(null);
 
-  let catSpans = cats.map((c) => Math.max(MIN_CAT, (c.value / denom) * 180));
-  let sumCat = catSpans.reduce((a, b) => a + b, 0);
-  let remSpan = leftover > 0 ? 180 - sumCat : 0;
-  if (remSpan < 0 || leftover <= 0) {
-    const scale = 180 / sumCat;
-    catSpans = catSpans.map((x) => x * scale);
-    remSpan = 0;
-  }
+  const sized = petals
+    .map((p) => ({ ...p, size: Math.max(p.budget, p.actual) }))
+    .filter((p) => p.size > 0)
+    .sort((a, b) => b.size - a.size);
 
-  type Seg = { color: string; icon?: string; span: number };
-  const segs: Seg[] = cats.map((c, i) => ({ color: c.color, icon: c.icon, span: catSpans[i] }));
-  if (remSpan > GAP) segs.push({ color: REMAIN_COLOR, span: remSpan });
+  const totalSize = sized.reduce((s, p) => s + p.size, 0);
+  const totalActual = petals.reduce((s, p) => s + Math.max(0, p.actual), 0);
+  const denom = Math.max(income, totalSize, 1);
+  const remainderSpan = ((denom - totalSize) / denom) * 180;
 
   let cursor = 180;
-  const wedges = segs.map((s) => {
-    const aH = cursor;
-    const aL = cursor - s.span + GAP;
-    const mid = cursor - s.span / 2;
-    cursor -= s.span;
-    return { d: wedgePath(aH - GAP / 2, aL - GAP / 2), color: s.color, icon: s.icon, mid };
+  const wedges = sized.map((p) => {
+    const span = (p.size / denom) * 180;
+    const aH = cursor - GAP / 2;
+    const aL = cursor - span + GAP / 2;
+    const mid = (aH + aL) / 2;
+    const actualFrac = p.size > 0 ? Math.min(1, Math.max(0, p.actual) / p.size) : 0;
+    const actualLow = aH - (aH - aL) * actualFrac;
+    cursor -= span;
+    return { p, aH, aL, mid, span, actualFrac, actualLow };
   });
 
-  const tR = Ri - 3;
-  const baseline = `M ${f(pt(tR, 180))} A ${tR} ${tR} 0 0 1 ${f(pt(tR, 0))}`;
-
-  const pct = (v: number, total: number) => `${(v / total) * 100}%`;
+  const activePetal = wedges.find((w) => w.p.key === active);
 
   return (
     <div className="relative w-full">
-      {/* wedges scale with the container via viewBox */}
       <svg width="100%" viewBox={`0 0 ${VB_W} ${VB_H}`} style={{ display: "block" }}>
-        <path d={baseline} fill="none" stroke="var(--color-hairline)" strokeWidth={2.5} />
-        {wedges.map((w, i) => (
-          <path key={i} d={w.d} fill={w.color} />
+        {/* baseline track */}
+        <path
+          d={`M ${f(pt(Ri - 3, 180))} A ${Ri - 3} ${Ri - 3} 0 0 1 ${f(pt(Ri - 3, 0))}`}
+          fill="none"
+          stroke="var(--color-hairline)"
+          strokeWidth={2.5}
+        />
+        {wedges.map((w) => (
+          <g
+            key={w.p.key}
+            style={{ cursor: onPetalClick ? "pointer" : "default" }}
+            onMouseEnter={() => setActive(w.p.key)}
+            onMouseLeave={() => setActive((k) => (k === w.p.key ? null : k))}
+            onClick={() => onPetalClick?.(w.p.key)}
+          >
+            {/* faint full-budget footprint */}
+            <path d={wedgePath(w.aH, w.aL)} fill={w.p.color} opacity={0.3} />
+            {/* solid actual fill */}
+            {w.actualFrac > 0.01 && (
+              <path d={wedgePath(w.aH, w.actualLow)} fill={w.p.color} />
+            )}
+            {/* hover ring */}
+            {active === w.p.key && (
+              <path d={wedgePath(w.aH, w.aL)} fill="none" stroke="#fff" strokeOpacity={0.5} strokeWidth={1.5} />
+            )}
+          </g>
         ))}
+        {/* neutral remainder (unallocated income) */}
+        {remainderSpan > GAP && (
+          <path
+            d={wedgePath(cursor - GAP / 2, cursor - remainderSpan + GAP / 2)}
+            fill={REMAIN_COLOR}
+            opacity={0.5}
+          />
+        )}
       </svg>
 
-      {/* category icons — real HTML icon spans, positioned as % so they scale */}
-      {wedges.map((w, i) =>
-        w.icon ? (
+      {/* icons — only where the petal is wide enough */}
+      {wedges.map((w) =>
+        w.span >= MIN_ICON_DEG ? (
           <span
-            key={`ic-${i}`}
-            className="material-symbols-outlined absolute"
+            key={`ic-${w.p.key}`}
+            className="material-symbols-outlined absolute pointer-events-none"
             style={{
               left: pct(pt(RC, w.mid)[0], VB_W),
               top: pct(pt(RC, w.mid)[1], VB_H),
               transform: "translate(-50%, -50%)",
-              fontSize: 24,
+              fontSize: 22,
               color: "#fff",
             }}
           >
-            {w.icon}
+            {w.p.icon}
           </span>
         ) : null,
       )}
@@ -132,15 +158,52 @@ export function Gauge({ segments, spent, budget, label = "Spent", budgetLabel = 
       {/* center readout */}
       <div className="absolute inset-x-0 text-center" style={{ top: pct(CY - 92, VB_H) }}>
         <p className="text-xs" style={{ color: "var(--color-muted)" }}>
-          {label}
+          Spent
         </p>
-        <p className="font-figure text-[34px] font-bold leading-tight" style={{ color: "var(--color-text)" }}>
-          {fmt0(spent)}
+        <p className="font-figure text-[32px] font-bold leading-tight" style={{ color: "var(--color-text)" }}>
+          {fmt0(totalActual)}
         </p>
         <p className="text-xs" style={{ color: "var(--color-faint)" }}>
-          of {fmt0(budget)} {budgetLabel}
+          of {fmt0(income)} income
         </p>
       </div>
+
+      {/* tooltip */}
+      {activePetal && (
+        <div
+          className="absolute z-10 -translate-x-1/2 -translate-y-full rounded-[10px] px-3 py-2 pointer-events-none shadow-lg"
+          style={{
+            left: pct(pt(RC, activePetal.mid)[0], VB_W),
+            top: `calc(${pct(pt(Ro, activePetal.mid)[1], VB_H)} - 6px)`,
+            background: "var(--color-elevated)",
+            border: "1px solid var(--color-hairline)",
+            minWidth: 150,
+            maxWidth: 220,
+          }}
+        >
+          <p className="text-xs font-semibold mb-0.5" style={{ color: "var(--color-text)" }}>
+            {activePetal.p.label}
+          </p>
+          <p className="text-[11px]" style={{ color: "var(--color-muted)" }}>
+            {fmt0(activePetal.p.actual)} of {fmt0(activePetal.p.budget)} budget
+          </p>
+          <p className="text-[11px]" style={{ color: "var(--color-faint)" }}>
+            3-mo avg {fmt0(activePetal.p.avg3)}
+          </p>
+          {activePetal.p.breakdown && activePetal.p.breakdown.length > 0 && (
+            <div className="mt-1 pt-1 space-y-0.5" style={{ borderTop: "1px solid var(--color-hairline)" }}>
+              {activePetal.p.breakdown.map((b) => (
+                <p key={b.label} className="text-[11px] flex justify-between gap-3" style={{ color: "var(--color-muted)" }}>
+                  <span className="truncate">{b.label}</span>
+                  <span className="font-figure shrink-0" style={{ color: "var(--color-text)" }}>
+                    {fmt0(b.value)}
+                  </span>
+                </p>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

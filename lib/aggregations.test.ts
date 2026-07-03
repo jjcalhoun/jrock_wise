@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { rollup, cashOut, accountBalance, monthKey } from "./aggregations";
-import type { Transaction, Account, AccountType } from "./types";
+import { rollup, loanPaydown, accountBalance, monthKey } from "./aggregations";
+import type { Transaction, Account } from "./types";
 
 /* ---- helpers ---- */
 const makeTxn = (overrides: Partial<Transaction>): Transaction => ({
@@ -172,53 +172,26 @@ describe("rollup — month filter", () => {
   });
 });
 
-/* ---- cashOut ---- */
-describe("cashOut — where cash actually went", () => {
-  const accountType: Record<string, AccountType> = {
-    chk: "checking",
-    sav: "savings",
-    card: "credit",
-    loan: "loan",
-  };
-  const cats = { dining: { name: "Dining", color: "#111", icon: "restaurant" } };
-  const split = (cat: string, amt: number) => [
-    { id: "s", user_id: "u1", transaction_id: "t", category_id: cat, bucket: "wants" as const, amount: amt, created_at: "" },
-  ];
+/* ---- loanPaydown ---- */
+describe("loanPaydown — money paid into loan accounts", () => {
+  const loans = new Set(["loan"]);
 
-  it("counts a debit purchase by category", () => {
-    const txns = [makeTxn({ id: "t1", account_id: "chk", amount: -40, splits: split("dining", -40) })];
-    const { segments, total } = cashOut(txns, accountType, cats, "2026-06");
-    expect(total).toBe(40);
-    expect(segments[0]).toMatchObject({ key: "cat:dining", value: 40 });
-  });
-
-  it("EXCLUDES a credit-card purchase (no cash moved)", () => {
-    const txns = [makeTxn({ id: "t1", account_id: "card", amount: -40, splits: split("dining", -40) })];
-    const { total } = cashOut(txns, accountType, cats, "2026-06");
-    expect(total).toBe(0);
-  });
-
-  it("counts a credit-card payment as cash out", () => {
-    const txns = [makeTxn({ id: "t1", account_id: "chk", type: "transfer", amount: -300, transfer_account_id: "card", splits: [] })];
-    const { segments, total } = cashOut(txns, accountType, cats, "2026-06");
-    expect(total).toBe(300);
-    expect(segments[0]).toMatchObject({ key: "dest:credit", value: 300 });
-  });
-
-  it("counts a loan payment as cash out", () => {
-    const txns = [makeTxn({ id: "t1", account_id: "chk", type: "transfer", amount: -250, transfer_account_id: "loan", splits: [] })];
-    const { segments } = cashOut(txns, accountType, cats, "2026-06");
-    expect(segments[0]).toMatchObject({ key: "dest:loan", value: 250 });
-  });
-
-  it("does not double-count: the transfer's inflow (destination) leg is ignored", () => {
+  it("sums paydown legs (transfer into a loan account, amount > 0)", () => {
     const txns = [
-      makeTxn({ id: "t1", account_id: "chk", type: "transfer", amount: -200, transfer_account_id: "sav", splits: [] }),
-      makeTxn({ id: "t2", account_id: "sav", type: "transfer", amount: 200, transfer_account_id: "chk", splits: [] }),
+      makeTxn({ id: "t1", account_id: "loan", type: "transfer", amount: 250, transfer_account_id: "chk", splits: [] }),
+      makeTxn({ id: "t2", account_id: "loan", type: "transfer", amount: 100, transfer_account_id: "chk", splits: [] }),
+      // the checking-side outflow leg is NOT counted (different account)
+      makeTxn({ id: "t3", account_id: "chk", type: "transfer", amount: -250, transfer_account_id: "loan", splits: [] }),
     ];
-    const { total, segments } = cashOut(txns, accountType, cats, "2026-06");
-    expect(total).toBe(200);
-    expect(segments[0]).toMatchObject({ key: "dest:savings", value: 200 });
+    expect(loanPaydown(txns, loans, "2026-06")).toBe(350);
+  });
+
+  it("ignores non-loan accounts and non-transfers", () => {
+    const txns = [
+      makeTxn({ id: "t1", account_id: "chk", type: "income", amount: 500, splits: [] }),
+      makeTxn({ id: "t2", account_id: "sav", type: "transfer", amount: 200, splits: [] }),
+    ];
+    expect(loanPaydown(txns, loans, "2026-06")).toBe(0);
   });
 });
 
