@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import {
   useTransactions,
   useCategories,
+  useAccounts,
   useBudget,
   useCategoryBudgets,
 } from "@/hooks/useSupabaseData";
@@ -21,6 +22,7 @@ import type { BucketType, Category } from "@/lib/types";
 export function InsightsScreen() {
   const { data: transactions = [], isLoading } = useTransactions();
   const { data: categories = [] } = useCategories();
+  const { data: accounts = [] } = useAccounts();
   const { data: budget } = useBudget();
   const { data: categoryBudgets = {} } = useCategoryBudgets();
 
@@ -37,7 +39,14 @@ export function InsightsScreen() {
     ensureSince(`${addMonth(month, -6)}-01`);
   }, [month, ensureSince]);
 
-  const roll = useMemo(() => rollup(transactions, month), [transactions, month]);
+  const savingsIds = useMemo(
+    () => new Set(accounts.filter((a) => a.type === "savings").map((a) => a.id)),
+    [accounts],
+  );
+  const roll = useMemo(
+    () => rollup(transactions, month, undefined, savingsIds),
+    [transactions, month, savingsIds],
+  );
   const categoryById = useMemo(
     () => Object.fromEntries(categories.map((c) => [c.id, c])),
     [categories],

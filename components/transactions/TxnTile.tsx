@@ -2,16 +2,18 @@
 
 import { fmt, shortDate } from "@/lib/format";
 import { isInterestPaid } from "@/lib/interestPaid";
+import { BUCKETS } from "@/lib/buckets";
 import type { Transaction, Category } from "@/lib/types";
 
 interface Props {
   txn: Transaction;
   categoryById: Record<string, Category>;
   accountNameById?: Record<string, string>;
+  savingsAccountIds?: Set<string>;
   onClick?: () => void;
 }
 
-export function TxnTile({ txn, categoryById, accountNameById, onClick }: Props) {
+export function TxnTile({ txn, categoryById, accountNameById, savingsAccountIds, onClick }: Props) {
   const isTransfer = txn.type === "transfer";
   const inflow = txn.amount > 0;
   const split = txn.splits ?? [];
@@ -22,20 +24,28 @@ export function TxnTile({ txn, categoryById, accountNameById, onClick }: Props) 
 
   // A transfer moves money between two accounts. Show it as one "from → to"
   // line regardless of which side (debit/credit) this row represents.
+  const fromId = inflow ? txn.transfer_account_id : txn.account_id;
+  const toId = inflow ? txn.account_id : txn.transfer_account_id;
   const nameOf = (id?: string | null) => (id ? accountNameById?.[id] : undefined);
-  const fromName = nameOf(inflow ? txn.transfer_account_id : txn.account_id);
-  const toName = nameOf(inflow ? txn.account_id : txn.transfer_account_id);
   const transferLabel =
-    fromName && toName ? `${fromName} → ${toName}` : txn.merchant || "Transfer";
+    nameOf(fromId) && nameOf(toId)
+      ? `${nameOf(fromId)} → ${nameOf(toId)}`
+      : txn.merchant || "Transfer";
+  // A transfer INTO a savings account reads as a savings contribution; anything
+  // else (incl. money leaving savings) reads as a plain transfer.
+  const intoSavings = isTransfer && !!toId && !!savingsAccountIds?.has(toId);
 
-  const color =
-    txn.type === "transfer"
-      ? "var(--color-transfer)"
-      : firstCat?.color ?? "var(--color-faint)";
+  const color = isTransfer
+    ? intoSavings
+      ? BUCKETS.savings.color
+      : "var(--color-transfer)"
+    : firstCat?.color ?? "var(--color-faint)";
 
   const icon =
     txn.type === "transfer"
-      ? "swap_horiz"
+      ? intoSavings
+        ? "savings"
+        : "swap_horiz"
       : txn.type === "income"
         ? "payments"
         : txn.type === "refund"
@@ -98,10 +108,17 @@ export function TxnTile({ txn, categoryById, accountNameById, onClick }: Props) 
         {isTransfer && (
           <span
             className="text-[9px] font-bold px-1.5 py-0.5 rounded"
-            style={{ background: "var(--color-chip-bg)", color: "var(--color-transfer)" }}
-            title="Transfer between accounts — not counted as income or spending"
+            style={{
+              background: "var(--color-chip-bg)",
+              color: intoSavings ? BUCKETS.savings.color : "var(--color-transfer)",
+            }}
+            title={
+              intoSavings
+                ? "Transfer into savings — counts toward your Savings bucket"
+                : "Transfer between accounts — not counted as income or spending"
+            }
           >
-            TRANSFER
+            {intoSavings ? "SAVINGS" : "TRANSFER"}
           </span>
         )}
       </div>
@@ -117,7 +134,7 @@ export function TxnTile({ txn, categoryById, accountNameById, onClick }: Props) 
           className="font-figure text-sm font-semibold"
           style={{
             color: isTransfer
-              ? "var(--color-transfer)"
+              ? color
               : inflow
                 ? "var(--color-positive)"
                 : "var(--color-text)",

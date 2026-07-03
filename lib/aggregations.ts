@@ -33,6 +33,7 @@ export function rollup(
   txns: Transaction[],
   month?: string,
   catBucket?: Record<string, BucketType>, // fallback bucket lookup if split.bucket missing
+  savingsAccountIds: Set<string> = new Set(), // accounts whose transfers move the savings bucket
 ): Rollup {
   const byCat: Record<string, number> = {};
   const byBucket: Record<BucketType, number> = { needs: 0, wants: 0, savings: 0 };
@@ -47,12 +48,14 @@ export function rollup(
       continue;
     }
     if (txn.type === "transfer") {
-      // A designated transfer (e.g. into savings) counts once toward its bucket
-      // and as an allocation in spend; plain transfers are budget-neutral.
-      if (txn.bucket) {
-        const amt = Math.abs(txn.amount);
-        byBucket[txn.bucket] += amt;
-        spend += amt;
+      // The savings bucket tracks net flow through savings accounts: money moving
+      // INTO a savings account (that account's inflow, amount > 0) adds to the
+      // bucket; money moving OUT (amount < 0) subtracts. We count only the
+      // savings-account leg, so each transfer is counted once with its natural
+      // sign. Transfers between non-savings accounts are budget-neutral.
+      if (savingsAccountIds.has(txn.account_id)) {
+        byBucket.savings += txn.amount;
+        spend += txn.amount;
       }
       continue;
     }
