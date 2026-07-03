@@ -127,7 +127,7 @@ function RuleEditor({ rule, onClose }: { rule?: RecurringRule; onClose: () => vo
     const mag = Math.abs(parseFloat(amount));
     if (isNaN(mag) || mag === 0) return setError("Enter an amount.");
     if (type === "transfer" && !transferId) return setError("Choose the transfer account.");
-    if (type !== "transfer" && !categoryId) return setError("Choose a category.");
+    if (type === "expense" && !categoryId) return setError("Choose a category.");
 
     // Sign: expense negative, income positive, transfer per direction.
     const signed =
@@ -141,8 +141,8 @@ function RuleEditor({ rule, onClose }: { rule?: RecurringRule; onClose: () => vo
         type,
         amount: signed,
         transfer_account_id: type === "transfer" ? transferId : null,
-        category_id: type !== "transfer" ? categoryId : null,
-        bucket: type !== "transfer" ? selectedCat?.bucket ?? null : null,
+        category_id: type === "expense" ? categoryId : null,
+        bucket: type === "expense" ? selectedCat?.bucket ?? null : null,
         frequency: freq,
         day_of_month: freq === "monthly" || freq === "semimonthly" ? parseInt(day1) : null,
         day_of_month_2: freq === "semimonthly" ? parseInt(day2) : null,
@@ -221,7 +221,7 @@ function RuleEditor({ rule, onClose }: { rule?: RecurringRule; onClose: () => vo
           </>
         )}
 
-        {type !== "transfer" && (
+        {type === "expense" && (
           <div>
             <p className="text-xs font-medium mb-2" style={{ color: "var(--color-muted)" }}>Category</p>
             <CategoryGrid categories={categories} selectedId={categoryId} onPick={(c) => setCategoryId(c.id)} />

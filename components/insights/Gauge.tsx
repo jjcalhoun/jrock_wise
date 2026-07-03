@@ -12,6 +12,8 @@ interface Props {
   segments: GaugeSegment[];
   spent: number;
   budget: number;
+  label?: string; // center readout heading (default "Spent")
+  budgetLabel?: string; // denominator word (default "budget")
 }
 
 /* The half-circle is divided into proportional wedges (each category's width
@@ -61,7 +63,7 @@ function wedgePath(aH: number, aL: number): string {
   );
 }
 
-export function Gauge({ segments, spent, budget }: Props) {
+export function Gauge({ segments, spent, budget, label = "Spent", budgetLabel = "budget" }: Props) {
   const cats = [...segments]
     .filter((s) => s.value > 0)
     .sort((a, b) => b.value - a.value)
@@ -130,13 +132,13 @@ export function Gauge({ segments, spent, budget }: Props) {
       {/* center readout */}
       <div className="absolute inset-x-0 text-center" style={{ top: pct(CY - 92, VB_H) }}>
         <p className="text-xs" style={{ color: "var(--color-muted)" }}>
-          Spent
+          {label}
         </p>
         <p className="font-figure text-[34px] font-bold leading-tight" style={{ color: "var(--color-text)" }}>
           {fmt0(spent)}
         </p>
         <p className="text-xs" style={{ color: "var(--color-faint)" }}>
-          of {fmt0(budget)} budget
+          of {fmt0(budget)} {budgetLabel}
         </p>
       </div>
     </div>

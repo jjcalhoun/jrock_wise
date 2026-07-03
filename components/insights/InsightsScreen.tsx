@@ -9,7 +9,7 @@ import {
   useCategoryBudgets,
 } from "@/hooks/useSupabaseData";
 import { useTxnWindow } from "@/components/providers";
-import { rollup } from "@/lib/aggregations";
+import { rollup, cashOut } from "@/lib/aggregations";
 import { fmt, fmt0, monthLabel, currentMonthKey, addMonth } from "@/lib/format";
 import { BUCKETS } from "@/lib/buckets";
 import { Card } from "@/components/ui/Card";
@@ -30,6 +30,7 @@ export function InsightsScreen() {
   const thisMonth = currentMonthKey();
   const [month, setMonth] = useState(thisMonth);
   const [detail, setDetail] = useState<Category | null>(null);
+  const [view, setView] = useState<"budget" | "cashout">("budget");
 
   const isCurrent = month === thisMonth;
   const canGoForward = month < thisMonth;
@@ -69,6 +70,17 @@ export function InsightsScreen() {
     icon: r.cat.icon,
   }));
 
+  // "Cash out" lens — where money actually left your accounts this month.
+  const accountType = useMemo(
+    () => Object.fromEntries(accounts.map((a) => [a.id, a.type])),
+    [accounts],
+  );
+  const cash = useMemo(
+    () => cashOut(transactions, accountType, categoryById, month),
+    [transactions, accountType, categoryById, month],
+  );
+  const cashSegments = cash.segments.map((s) => ({ color: s.color, value: s.value, icon: s.icon }));
+
   const income = budget?.income ?? 0;
   const available = isCurrent ? income - roll.spend : roll.income - roll.spend;
 
@@ -99,10 +111,71 @@ export function InsightsScreen() {
       {/* Two-column dashboard on desktop */}
       <div className="lg:grid lg:grid-cols-2 lg:gap-5 lg:items-start space-y-5 lg:space-y-0">
         <div className="space-y-5">
+      {/* Budget / Cash-out toggle */}
+      <div
+        className="inline-flex p-0.5 rounded-full text-xs font-semibold"
+        style={{ background: "var(--color-chip-bg)" }}
+      >
+        {([["budget", "Budget"], ["cashout", "Cash out"]] as const).map(([v, lbl]) => (
+          <button
+            key={v}
+            onClick={() => setView(v)}
+            className="px-3 py-1.5 rounded-full transition-colors"
+            style={{
+              background: view === v ? "var(--color-primary)" : "transparent",
+              color: view === v ? "#fff" : "var(--color-muted)",
+            }}
+          >
+            {lbl}
+          </button>
+        ))}
+      </div>
+
       {/* Gauge */}
       <Card className="px-3 pt-3 pb-2">
-        <Gauge segments={gaugeSegments} spent={roll.spend} budget={gaugeBudget} />
+        {view === "budget" ? (
+          <Gauge segments={gaugeSegments} spent={roll.spend} budget={gaugeBudget} />
+        ) : (
+          <Gauge
+            segments={cashSegments}
+            spent={cash.total}
+            budget={Math.max(income, cash.total)}
+            label="Cash out"
+            budgetLabel="income"
+          />
+        )}
       </Card>
+
+      {/* Cash-out breakdown — itemizes where money left, incl. debt payments */}
+      {view === "cashout" && (
+        <Card className="p-4 space-y-2.5">
+          <p className="text-xs" style={{ color: "var(--color-muted)" }}>
+            Where your cash went{cash.total === 0 ? " — no cash movement this month" : ""}
+          </p>
+          {cash.segments.map((s) => (
+            <div key={s.key} className="flex items-center gap-2.5">
+              <span
+                className="inline-flex items-center justify-center w-7 h-7 rounded-full shrink-0"
+                style={{ background: `${s.color}22` }}
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: 16, color: s.color }}>
+                  {s.icon}
+                </span>
+              </span>
+              <span className="text-sm flex-1 truncate" style={{ color: "var(--color-text)" }}>
+                {s.label}
+              </span>
+              <span className="font-figure text-sm font-semibold" style={{ color: "var(--color-text)" }}>
+                {fmt(s.value)}
+              </span>
+            </div>
+          ))}
+          <p className="text-[11px] pt-1" style={{ color: "var(--color-faint)" }}>
+            Cash that left your checking, savings & cash accounts. Credit-card
+            purchases aren’t here — they show up when you pay the card.
+          </p>
+        </Card>
+      )}
 
       {/* Available / Net card */}
       <Card className="p-4">
