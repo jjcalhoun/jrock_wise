@@ -2,10 +2,10 @@ import { describe, it, expect } from "vitest";
 import { futureValue } from "./investments";
 
 describe("futureValue", () => {
-  it("compounds a starting balance with no contributions", () => {
-    // $10,000 at 12%/yr (1%/mo) for 1 year ≈ 10000 * 1.01^12
+  it("compounds a starting balance at the effective annual rate", () => {
+    // $10,000 at an effective 12%/yr for 1 year = exactly $11,200
     const fv = futureValue({ balance: 10000, monthly: 0, annualReturnPct: 12, years: 1 });
-    expect(fv).toBeCloseTo(10000 * Math.pow(1.01, 12), 2);
+    expect(fv).toBeCloseTo(11200, 2);
   });
 
   it("adds a monthly contribution stream", () => {
@@ -15,10 +15,10 @@ describe("futureValue", () => {
   });
 
   it("grows contributions with return", () => {
-    // $500/mo at 7% (annual/12 monthly compounding) for 30y ≈ $610k
+    // $500/mo at an effective 7%/yr for 30y ≈ $585k
     const fv = futureValue({ balance: 0, monthly: 500, annualReturnPct: 7, years: 30 });
-    expect(fv).toBeGreaterThan(605000);
-    expect(fv).toBeLessThan(615000);
+    expect(fv).toBeGreaterThan(580000);
+    expect(fv).toBeLessThan(590000);
   });
 
   it("returns the balance itself when years is 0", () => {
