@@ -13,9 +13,17 @@ import {
   useResolveTransfer,
 } from "@/hooks/useSupabaseData";
 import { CategoryGrid } from "@/components/transactions/CategoryGrid";
+import { useUpsertRecurringRule } from "@/hooks/useRecurring";
 import { isInterestPaid } from "@/lib/interestPaid";
+import { todayISO } from "@/lib/dates";
 import { BUCKETS } from "@/lib/buckets";
-import type { Transaction, TransactionType, BucketType } from "@/lib/types";
+import type { Transaction, TransactionType, BucketType, RecurringFrequency } from "@/lib/types";
+
+const FREQ_LABEL: Record<"monthly" | "biweekly" | "weekly", string> = {
+  monthly: "Monthly",
+  biweekly: "Every 2 weeks",
+  weekly: "Weekly",
+};
 
 interface Props {
   txn: Transaction;
@@ -36,6 +44,7 @@ export function TransactionEditor({ txn, onClose, inline }: Props) {
   const update = useUpdateTransaction();
   const del = useDeleteTransaction();
   const resolveTransfer = useResolveTransfer();
+  const upsertRule = useUpsertRecurringRule();
 
   const firstSplit = (txn.splits ?? [])[0];
 
@@ -48,7 +57,11 @@ export function TransactionEditor({ txn, onClose, inline }: Props) {
   const [bucket, setBucket] = useState<BucketType>(firstSplit?.bucket ?? "needs");
   const [transferAccountId, setTransferAccountId] = useState(txn.transfer_account_id ?? "");
   const [notes, setNotes] = useState(txn.notes ?? "");
+  const [makeRecurring, setMakeRecurring] = useState(false);
+  const [recurFreq, setRecurFreq] = useState<RecurringFrequency>("monthly");
   const [error, setError] = useState<string | null>(null);
+
+  const canRecur = type !== "refund"; // rules cover expense / income / transfer
 
   // Interest charges affect the account balance only — they carry no category
   // split and are excluded from the budget, so we don't prompt for a category.
@@ -96,6 +109,28 @@ export function TransactionEditor({ txn, onClose, inline }: Props) {
       // from account types at read time, so there's nothing to designate here.
       if (type === "transfer" && transferAccountId) {
         await resolveTransfer.mutateAsync({ id: txn.id, transfer_account_id: transferAccountId });
+      }
+      // Optionally spin up a recurring rule from this transaction. It generates
+      // FUTURE occurrences only (watermark = today), so this row isn't duplicated.
+      if (makeRecurring && canRecur) {
+        const d = new Date(`${date}T00:00:00Z`);
+        await upsertRule.mutateAsync({
+          name: merchant.trim() || "Recurring",
+          account_id: accountId,
+          type: type as "expense" | "income" | "transfer",
+          amount: signed,
+          transfer_account_id: type === "transfer" ? transferAccountId || null : null,
+          category_id: type === "expense" ? categoryId || null : null,
+          bucket: type === "expense" ? bucket : null,
+          frequency: recurFreq,
+          day_of_month: recurFreq === "monthly" ? d.getUTCDate() : null,
+          weekday: recurFreq === "weekly" || recurFreq === "biweekly" ? d.getUTCDay() : null,
+          interval: 1,
+          start_date: date,
+          last_generated: todayISO(),
+          auto_review: true,
+          active: true,
+        });
       }
       onClose();
     } catch (e) {
@@ -239,6 +274,38 @@ export function TransactionEditor({ txn, onClose, inline }: Props) {
           onChange={(e) => setNotes(e.target.value)}
           placeholder="Optional"
         />
+
+        {/* Make recurring — creates a rule from this transaction */}
+        {canRecur && (
+          <div className="rounded-[10px] p-3 space-y-2.5" style={{ background: "var(--color-elevated)" }}>
+            <label className="flex items-center justify-between cursor-pointer">
+              <span className="text-sm" style={{ color: "var(--color-text)" }}>
+                Repeat this transaction
+              </span>
+              <input
+                type="checkbox"
+                checked={makeRecurring}
+                onChange={(e) => setMakeRecurring(e.target.checked)}
+                style={{ accentColor: "var(--color-primary)" }}
+              />
+            </label>
+            {makeRecurring && (
+              <>
+                <div className="flex flex-wrap gap-2">
+                  {(["monthly", "biweekly", "weekly"] as const).map((fr) => (
+                    <Chip key={fr} active={recurFreq === fr} onClick={() => setRecurFreq(fr)}>
+                      {FREQ_LABEL[fr]}
+                    </Chip>
+                  ))}
+                </div>
+                <p className="text-xs" style={{ color: "var(--color-faint)" }}>
+                  Creates a recurring rule from this transaction. Future occurrences
+                  post automatically — this one stays as it is.
+                </p>
+              </>
+            )}
+          </div>
+        )}
 
         {error && (
           <p className="text-sm" style={{ color: "var(--color-danger)" }}>
