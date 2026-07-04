@@ -55,13 +55,20 @@ export function BudgetEditor({ onClose }: { onClose: () => void }) {
   return (
     <Sheet title="Budget plan" onClose={onClose}>
       <div className="px-5 py-4 space-y-5">
-        <Input
-          label="Estimated monthly income"
-          inputMode="decimal"
-          placeholder="0.00"
-          value={income}
-          onChange={(e) => setIncome(e.target.value)}
-        />
+        <div className="space-y-1.5">
+          <Input
+            label="Estimated monthly income"
+            inputMode="decimal"
+            placeholder="0.00"
+            value={income}
+            onChange={(e) => setIncome(e.target.value)}
+          />
+          <p className="text-xs" style={{ color: "var(--color-faint)" }}>
+            Used to size the allocation below. Home and Insights show your
+            predicted income from recurring rules when you have them; this
+            estimate is the fallback until then.
+          </p>
+        </div>
 
         <div className="space-y-4">
           <div className="flex items-center justify-between">

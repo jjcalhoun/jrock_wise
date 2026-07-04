@@ -10,6 +10,8 @@ import {
 } from "@/hooks/useSupabaseData";
 import { useTxnWindow } from "@/components/providers";
 import { rollup, loanPaydown, monthKey } from "@/lib/aggregations";
+import { predictMonth } from "@/lib/predict";
+import { useRecurringRules } from "@/hooks/useRecurring";
 import { fmt, fmt0, monthLabel, currentMonthKey, addMonth } from "@/lib/format";
 import { BUCKETS } from "@/lib/buckets";
 import { Card } from "@/components/ui/Card";
@@ -64,8 +66,23 @@ export function InsightsScreen() {
     [accounts],
   );
 
-  const income = budget?.income ?? 0;
-  const available = isCurrent ? income - roll.spend : roll.income - roll.spend;
+  const { data: rules = [] } = useRecurringRules();
+
+  // Income: actual for past months; predicted for the current month (received
+  // so far + what's still to come from recurring rules), matching Home. Falls
+  // back to the manual estimate only when there are no recurring income rules.
+  const pred = useMemo(
+    () => (isCurrent ? predictMonth(rules, transactions, month) : null),
+    [isCurrent, rules, transactions, month],
+  );
+  const hasIncomeRule = rules.some((r) => r.active && r.type === "income");
+  const income = !isCurrent
+    ? roll.income
+    : hasIncomeRule
+      ? roll.income + (pred?.income ?? 0)
+      : Math.max(roll.income, budget?.income ?? 0);
+  const projSpend = roll.spend + (pred?.spend ?? 0);
+  const available = isCurrent ? income - projSpend : roll.income - roll.spend;
 
   // 3-month averages (the 3 completed months before the selected one).
   const avg3ByCat = useMemo(() => {
@@ -198,13 +215,13 @@ export function InsightsScreen() {
           Cash flow
         </h2>
         <Card className="p-4 space-y-3">
-          <FlowBar label="Income" value={roll.income} max={Math.max(roll.income, roll.spend, 1)} color="var(--color-positive)" />
+          <FlowBar label="Income" value={income} max={Math.max(income, roll.spend, 1)} color="var(--color-positive)" />
           {(Object.keys(BUCKETS) as BucketType[]).map((b) => (
             <FlowBar
               key={b}
               label={BUCKETS[b].label}
               value={roll.byBucket[b]}
-              max={Math.max(roll.income, roll.spend, 1)}
+              max={Math.max(income, roll.spend, 1)}
               color={BUCKETS[b].color}
             />
           ))}
