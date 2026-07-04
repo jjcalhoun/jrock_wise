@@ -11,6 +11,8 @@ import {
 } from "@/hooks/useSupabaseData";
 import { useTxnWindow } from "@/components/providers";
 import { rollup } from "@/lib/aggregations";
+import { predictMonth } from "@/lib/predict";
+import { useRecurringRules } from "@/hooks/useRecurring";
 import { fmt0, fmt, currentMonthKey, monthLabel, addMonth } from "@/lib/format";
 import { BUCKETS } from "@/lib/buckets";
 import { TxnTile } from "@/components/transactions/TxnTile";
@@ -62,9 +64,24 @@ export function HomeScreen() {
     () => rollup(transactions, month, undefined, savingsIds, loanIds),
     [transactions, month, savingsIds, loanIds],
   );
-  const income = budget?.income ?? 0;
-  // current month → "safe to spend" (expected income − spent); past → actual net
-  const heroValue = isCurrent ? Math.max(0, income - roll.spend) : roll.income - roll.spend;
+  const { data: rules = [] } = useRecurringRules();
+
+  // Current month: fold in what's still coming from recurring rules (unfilled
+  // bills, the next paycheck). Each real item that lands fills its prediction,
+  // so nothing double-counts. Past months are always actual.
+  const pred = useMemo(
+    () => (isCurrent ? predictMonth(rules, transactions, month) : null),
+    [isCurrent, rules, transactions, month],
+  );
+
+  // Income: predicted for the current month (received + still to come), actual
+  // for past months.
+  const projIncome = roll.income + (pred?.income ?? 0);
+  const projSpend = roll.spend + (pred?.spend ?? 0);
+  const leftover = projIncome - projSpend;
+  // current month → "safe to spend" (predicted income − predicted spend);
+  // past → actual net
+  const heroValue = isCurrent ? Math.max(0, leftover) : roll.income - roll.spend;
   const heroLabel = isCurrent ? "Safe to spend" : "Net";
 
   const recent = transactions.slice(0, 9);
@@ -143,7 +160,8 @@ export function HomeScreen() {
         <div className="grid grid-cols-3 gap-3">
           <MiniCard
             label="Income"
-            value={fmt0(roll.income)}
+            value={fmt0(projIncome)}
+            hint={pred && pred.income > 0 ? "incl. expected" : undefined}
             onClick={() => router.push(`/activity?type=income&month=${month}`)}
           />
           <MiniCard
@@ -153,8 +171,9 @@ export function HomeScreen() {
           />
           <MiniCard
             label="Leftover"
-            value={fmt0(roll.income - roll.spend)}
-            accent={roll.income - roll.spend >= 0 ? "var(--color-positive)" : "var(--color-danger)"}
+            value={fmt0(leftover)}
+            hint={pred && (pred.income > 0 || pred.spend > 0) ? "projected" : undefined}
+            accent={leftover >= 0 ? "var(--color-positive)" : "var(--color-danger)"}
           />
         </div>
       )}
@@ -293,11 +312,13 @@ function MiniCard({
   label,
   value,
   accent,
+  hint,
   onClick,
 }: {
   label: string;
   value: string;
   accent?: string;
+  hint?: string;
   onClick?: () => void;
 }) {
   const Tag = onClick ? "button" : "div";
@@ -319,6 +340,11 @@ function MiniCard({
       >
         {value}
       </p>
+      {hint && (
+        <p className="text-[10px] mt-0.5" style={{ color: "var(--color-faint)" }}>
+          {hint}
+        </p>
+      )}
     </Tag>
   );
 }
