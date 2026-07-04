@@ -62,6 +62,34 @@ export function useDeleteRecurringRule() {
   });
 }
 
+/** Signatures of recurring suggestions the user has dismissed. */
+export function useDismissedSuggestions() {
+  return useQuery({
+    queryKey: ["recurring_dismissals"],
+    queryFn: async (): Promise<string[]> => {
+      const { data, error } = await supabase
+        .from("recurring_suggestion_dismissals")
+        .select("signature");
+      if (error) throw error;
+      return (data ?? []).map((r) => r.signature as string);
+    },
+  });
+}
+
+export function useDismissSuggestion() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (signature: string) => {
+      const user_id = await currentUserId();
+      const { error } = await supabase
+        .from("recurring_suggestion_dismissals")
+        .upsert({ user_id, signature });
+      if (error) throw error;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["recurring_dismissals"] }),
+  });
+}
+
 /** Materialize due recurring transactions (server route). */
 export function useGenerateRecurring() {
   const qc = useQueryClient();

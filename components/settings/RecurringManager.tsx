@@ -1,18 +1,21 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Sheet } from "@/components/ui/Sheet";
 import { Input } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
 import { Chip } from "@/components/ui/Chip";
 import { CategoryGrid } from "@/components/transactions/CategoryGrid";
-import { useAccounts, useCategories } from "@/hooks/useSupabaseData";
+import { useAccounts, useCategories, useTransactions } from "@/hooks/useSupabaseData";
 import {
   useRecurringRules,
   useUpsertRecurringRule,
   useDeleteRecurringRule,
   useGenerateRecurring,
+  useDismissedSuggestions,
+  useDismissSuggestion,
 } from "@/hooks/useRecurring";
+import { detectRecurring, type RecurringSuggestion } from "@/lib/recurringDetect";
 import { fmt } from "@/lib/format";
 import type { RecurringRule, RecurringFrequency } from "@/lib/types";
 
@@ -33,8 +36,42 @@ function freqLabel(r: RecurringRule): string {
 
 export function RecurringManager({ onClose }: { onClose: () => void }) {
   const { data: rules = [] } = useRecurringRules();
+  const { data: transactions = [] } = useTransactions();
+  const { data: dismissed = [] } = useDismissedSuggestions();
+  const upsert = useUpsertRecurringRule();
+  const dismiss = useDismissSuggestion();
   const generate = useGenerateRecurring();
   const [editing, setEditing] = useState<RecurringRule | "new" | null>(null);
+
+  const suggestions = useMemo(
+    () =>
+      detectRecurring(
+        transactions,
+        rules.map((r) => ({ account_id: r.account_id, type: r.type, name: r.name, active: r.active })),
+        new Set(dismissed),
+      ),
+    [transactions, rules, dismissed],
+  );
+
+  function addSuggestion(s: RecurringSuggestion) {
+    upsert.mutate({
+      name: s.name,
+      account_id: s.account_id,
+      type: s.type,
+      amount: s.amount,
+      transfer_account_id: s.transfer_account_id,
+      category_id: s.category_id,
+      bucket: s.bucket,
+      frequency: s.frequency,
+      day_of_month: s.day_of_month,
+      weekday: s.weekday,
+      interval: 1,
+      start_date: s.lastDate,
+      last_generated: todayISO(),
+      auto_review: true,
+      active: true,
+    });
+  }
 
   if (editing) {
     return <RuleEditor rule={editing === "new" ? undefined : editing} onClose={() => setEditing(null)} />;
@@ -48,6 +85,41 @@ export function RecurringManager({ onClose }: { onClose: () => void }) {
           allocations, fixed bills, and the like. They appear up to today and stay
           in sync on each app open.
         </p>
+
+        {suggestions.length > 0 && (
+          <div className="space-y-2">
+            <p className="text-xs font-semibold" style={{ color: "var(--color-text)" }}>
+              Looks recurring
+            </p>
+            {suggestions.map((s) => (
+              <div
+                key={s.signature}
+                className="rounded-xl border p-3"
+                style={{ background: "var(--color-elevated)", borderColor: "var(--color-primary)" }}
+              >
+                <div className="flex items-center justify-between">
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium truncate" style={{ color: "var(--color-text)" }}>{s.name}</p>
+                    <p className="text-xs" style={{ color: "var(--color-faint)" }}>
+                      {s.frequency === "monthly" ? "Monthly" : s.frequency === "biweekly" ? "Every 2 weeks" : "Weekly"} · seen {s.count}×
+                    </p>
+                  </div>
+                  <span className="font-figure text-sm shrink-0" style={{ color: s.amount < 0 ? "var(--color-text)" : "var(--color-positive)" }}>
+                    {fmt(s.amount)}
+                  </span>
+                </div>
+                <div className="flex gap-2 mt-2.5">
+                  <Button size="sm" onClick={() => addSuggestion(s)} disabled={upsert.isPending}>
+                    Add rule
+                  </Button>
+                  <Button size="sm" variant="secondary" onClick={() => dismiss.mutate(s.signature)} disabled={dismiss.isPending}>
+                    Dismiss
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
 
         {rules.length > 0 && (
           <div className="space-y-2">
