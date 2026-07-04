@@ -33,7 +33,8 @@ const RC = 156;
 const TH = 42;
 const GAP = 3.5;
 const CORNER = 10;
-const MIN_ICON_DEG = 15; // below this a petal is color-only (no icon)
+const MIN_ICON_DEG = 13; // below this a petal is color-only (no icon)
+const MIN_SPAN = 14; // smallest petal, in degrees — keeps it tappable + rounded
 
 const Ri = RC - TH / 2;
 const Ro = RC + TH / 2;
@@ -82,17 +83,25 @@ export function Gauge({ petals, income, onPetalClick }: Props) {
   const totalSize = sized.reduce((s, p) => s + p.size, 0);
   const totalActual = totalSize;
   const denom = Math.max(income, totalSize, 1);
-  const remainderSpan = ((denom - totalSize) / denom) * 180;
+
+  // Every petal gets a floor of MIN_SPAN degrees so even tiny categories stay
+  // tappable and keep fully rounded corners; the leftover arc ("flexible") is
+  // shared out proportionally between the petals and the unspent-income
+  // remainder. Falls back to an even split if there are too many petals to fit.
+  const n = sized.length;
+  const minSpan = n > 0 ? Math.min(MIN_SPAN, 150 / n) : 0;
+  const flexible = Math.max(0, 180 - n * minSpan);
 
   let cursor = 180;
   const wedges = sized.map((p) => {
-    const span = (p.size / denom) * 180;
+    const span = minSpan + (p.size / denom) * flexible;
     const aH = cursor - GAP / 2;
     const aL = cursor - span + GAP / 2;
     const mid = (aH + aL) / 2;
     cursor -= span;
     return { p, aH, aL, mid, span };
   });
+  const remainderSpan = Math.max(0, (denom - totalSize) / denom) * flexible;
 
   const activePetal = wedges.find((w) => w.p.key === active);
 

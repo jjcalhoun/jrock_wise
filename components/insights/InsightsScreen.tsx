@@ -83,6 +83,10 @@ export function InsightsScreen() {
       : Math.max(roll.income, budget?.income ?? 0);
   const projSpend = roll.spend + (pred?.spend ?? 0);
   const available = isCurrent ? income - projSpend : roll.income - roll.spend;
+  // Current-month breakdown: what's free after spending so far, less the
+  // recurring bills still expected this month.
+  const availableNow = income - roll.spend;
+  const expectedRecurring = pred?.spend ?? 0;
 
   // 3-month averages (the 3 completed months before the selected one).
   const avg3ByCat = useMemo(() => {
@@ -207,6 +211,11 @@ export function InsightsScreen() {
         >
           {fmt(available)}
         </p>
+        {isCurrent && expectedRecurring > 0 && (
+          <p className="text-xs mt-1.5" style={{ color: "var(--color-faint)" }}>
+            {fmt(availableNow)} now, less {fmt0(expectedRecurring)} in expected recurring payments
+          </p>
+        )}
       </Card>
 
       {/* Cash flow */}
