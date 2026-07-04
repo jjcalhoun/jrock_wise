@@ -34,7 +34,7 @@ const TH = 42;
 const GAP = 3.5;
 const CORNER = 10;
 const MIN_ICON_DEG = 13; // below this a petal is color-only (no icon)
-const MIN_SPAN = 14; // smallest petal, in degrees — keeps it tappable + rounded
+const MIN_SPAN = 5; // smallest petal, in degrees — keeps it tappable + rounded
 
 const Ri = RC - TH / 2;
 const Ro = RC + TH / 2;
