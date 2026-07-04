@@ -8,12 +8,20 @@ import {
   useReviewTransaction,
   useResolveTransfer,
 } from "@/hooks/useSupabaseData";
+import { useUpsertRecurringRule } from "@/hooks/useRecurring";
 import { CategoryGrid } from "@/components/transactions/CategoryGrid";
 import { Button } from "@/components/ui/Button";
 import { Chip } from "@/components/ui/Chip";
 import { BUCKETS } from "@/lib/buckets";
+import { todayISO } from "@/lib/dates";
 import { fmt, shortDate } from "@/lib/format";
-import type { Transaction, TransactionType, BucketType } from "@/lib/types";
+import type { Transaction, TransactionType, BucketType, RecurringFrequency } from "@/lib/types";
+
+const REVIEW_FREQ: Record<"monthly" | "biweekly" | "weekly", string> = {
+  monthly: "Monthly",
+  biweekly: "Every 2 weeks",
+  weekly: "Weekly",
+};
 
 export function ReviewFlow({ onClose }: { onClose: () => void }) {
   const { data: transactions = [] } = useTransactions();
@@ -21,6 +29,7 @@ export function ReviewFlow({ onClose }: { onClose: () => void }) {
   const { data: accounts = [] } = useAccounts();
   const review = useReviewTransaction();
   const resolveTransfer = useResolveTransfer();
+  const upsertRule = useUpsertRecurringRule();
 
   // snapshot the queue once so it stays stable as we review through it
   const [queue, setQueue] = useState<Transaction[]>([]);
@@ -39,6 +48,8 @@ export function ReviewFlow({ onClose }: { onClose: () => void }) {
   const [categoryId, setCategoryId] = useState("");
   const [bucket, setBucket] = useState<BucketType>("needs");
   const [transferAccountId, setTransferAccountId] = useState("");
+  const [makeRecurring, setMakeRecurring] = useState(false);
+  const [recurFreq, setRecurFreq] = useState<RecurringFrequency>("monthly");
 
   // reset selections whenever the current transaction changes
   useEffect(() => {
@@ -47,6 +58,8 @@ export function ReviewFlow({ onClose }: { onClose: () => void }) {
     setCategoryId("");
     setBucket("needs");
     setTransferAccountId("");
+    setMakeRecurring(false);
+    setRecurFreq("monthly");
   }, [txn]);
 
   function pickTransferAccount(id: string) {
@@ -84,6 +97,27 @@ export function ReviewFlow({ onClose }: { onClose: () => void }) {
         splits: needsCategory && categoryId
           ? [{ category_id: categoryId, bucket, amount: txn.amount }]
           : undefined,
+      });
+    }
+    // Optionally create a recurring rule from this transaction (future occurrences only).
+    if (makeRecurring && type !== "refund") {
+      const d = new Date(`${txn.date}T00:00:00Z`);
+      await upsertRule.mutateAsync({
+        name: txn.merchant || txn.description || "Recurring",
+        account_id: txn.account_id,
+        type: type as "expense" | "income" | "transfer",
+        amount: txn.amount,
+        transfer_account_id: type === "transfer" ? transferAccountId || null : null,
+        category_id: type === "expense" ? categoryId || null : null,
+        bucket: type === "expense" ? bucket : null,
+        frequency: recurFreq,
+        day_of_month: recurFreq === "monthly" ? d.getUTCDate() : null,
+        weekday: recurFreq === "weekly" || recurFreq === "biweekly" ? d.getUTCDay() : null,
+        interval: 1,
+        start_date: txn.date,
+        last_generated: todayISO(),
+        auto_review: true,
+        active: true,
       });
     }
     setIndex((i) => i + 1);
@@ -228,6 +262,30 @@ export function ReviewFlow({ onClose }: { onClose: () => void }) {
               <p className="text-sm" style={{ color: "var(--color-faint)" }}>
                 Income needs no category — just save.
               </p>
+            )}
+
+            {/* Make recurring */}
+            {type !== "refund" && (
+              <div className="rounded-[10px] p-3 space-y-2.5" style={{ background: "var(--color-surface)" }}>
+                <label className="flex items-center justify-between cursor-pointer">
+                  <span className="text-sm" style={{ color: "var(--color-text)" }}>Repeat this transaction</span>
+                  <input
+                    type="checkbox"
+                    checked={makeRecurring}
+                    onChange={(e) => setMakeRecurring(e.target.checked)}
+                    style={{ accentColor: "var(--color-primary)" }}
+                  />
+                </label>
+                {makeRecurring && (
+                  <div className="flex flex-wrap gap-2">
+                    {(["monthly", "biweekly", "weekly"] as const).map((fr) => (
+                      <Chip key={fr} active={recurFreq === fr} onClick={() => setRecurFreq(fr)}>
+                        {REVIEW_FREQ[fr]}
+                      </Chip>
+                    ))}
+                  </div>
+                )}
+              </div>
             )}
           </div>
         )}
