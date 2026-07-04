@@ -75,8 +75,14 @@ export function HomeScreen() {
   );
 
   // Income: predicted for the current month (received + still to come), actual
-  // for past months.
-  const projIncome = roll.income + (pred?.income ?? 0);
+  // for past months. Falls back to the manual estimate only when there are no
+  // recurring income rules.
+  const hasIncomeRule = rules.some((r) => r.active && r.type === "income");
+  const projIncome = !isCurrent
+    ? roll.income
+    : hasIncomeRule
+      ? roll.income + (pred?.income ?? 0)
+      : Math.max(roll.income, budget?.income ?? 0);
   const projSpend = roll.spend + (pred?.spend ?? 0);
   const leftover = projIncome - projSpend;
   // current month → "safe to spend" (predicted income − predicted spend);
