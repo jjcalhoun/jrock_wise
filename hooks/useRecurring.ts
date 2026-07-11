@@ -42,13 +42,79 @@ export function useUpsertRecurringRule() {
   return useMutation({
     mutationFn: async (input: RecurringRuleInput & { id?: string }) => {
       const user_id = await currentUserId();
-      const { error } = await supabase
+      const isNew = !input.id;
+      const { data: row, error } = await supabase
         .from("recurring_rules")
-        .upsert({ ...input, user_id });
+        .upsert({ ...input, user_id })
+        .select("id")
+        .single();
       if (error) throw error;
+      // A rule created mid-month appends its remaining occurrences to the
+      // current month's plan (the plan is a snapshot — next months draft it
+      // automatically, but this month already exists).
+      if (isNew && row && input.active !== false) {
+        await appendRuleToCurrentPlan(user_id, { ...input, id: row.id as string });
+      }
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["recurring_rules"] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["recurring_rules"] });
+      qc.invalidateQueries({ queryKey: ["month_plan"] });
+    },
   });
+}
+
+async function appendRuleToCurrentPlan(user_id: string, rule: RecurringRuleInput & { id: string }) {
+  const { occurrences } = await import("@/lib/recurring");
+  const { ruleKind } = await import("@/lib/monthPlan");
+  const { todayISO, endOfMonthISO } = await import("@/lib/dates");
+
+  const today = todayISO();
+  const month = today.slice(0, 7);
+  const { data: plan } = await supabase
+    .from("month_plans")
+    .select("id")
+    .eq("month", month)
+    .maybeSingle();
+  if (!plan) return; // no plan yet — the draft will pick the rule up
+
+  const { data: accounts } = await supabase.from("accounts").select("id, type");
+  const accountById = Object.fromEntries((accounts ?? []).map((a) => [a.id as string, a]));
+  const kind = ruleKind(
+    { type: rule.type, transfer_account_id: rule.transfer_account_id ?? null },
+    accountById,
+  );
+  if (!kind) return; // cash-neutral shuffle
+
+  // Only occurrences still ahead of us — the transaction that spawned the rule
+  // (if any) already happened and stays part of actual spending.
+  const dates = occurrences(
+    {
+      frequency: rule.frequency,
+      day_of_month: rule.day_of_month,
+      day_of_month_2: rule.day_of_month_2,
+      weekday: rule.weekday,
+      interval: rule.interval ?? 1,
+      start_date: rule.start_date,
+      end_date: rule.end_date ?? null,
+    },
+    today,
+    endOfMonthISO(),
+  ).filter((d) => d > today);
+  if (dates.length === 0) return;
+
+  const mag = Math.abs(rule.amount);
+  await supabase.from("month_plan_items").insert(
+    dates.map((due_date) => ({
+      user_id,
+      plan_id: plan.id,
+      rule_id: rule.id,
+      name: rule.name,
+      kind,
+      amount: kind === "income" ? mag : -mag,
+      due_date,
+      variable: false,
+    })),
+  );
 }
 
 export function useDeleteRecurringRule() {
