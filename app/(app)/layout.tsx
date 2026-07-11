@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { BottomNav } from "@/components/nav/BottomNav";
 import { SideNav } from "@/components/nav/SideNav";
 import { RecurringRunner } from "@/components/recurring/RecurringRunner";
+import { MonthPlanPrompt } from "@/components/plan/MonthPlanPrompt";
 
 export default async function AppLayout({
   children,
@@ -21,6 +22,7 @@ export default async function AppLayout({
   return (
     <div className="min-h-screen lg:flex" style={{ background: "var(--color-canvas)" }}>
       <RecurringRunner />
+      <MonthPlanPrompt />
       {/* Desktop: sidebar; mobile: bottom nav (below) */}
       <SideNav />
       <main className="flex-1 min-w-0">
