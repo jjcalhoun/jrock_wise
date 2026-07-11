@@ -96,6 +96,23 @@ export function usePopulatePlanItems() {
   });
 }
 
+/** Append draft items to an existing plan (no emptiness guard — used to pick
+    up rules created after the plan was drafted). */
+export function useAppendPlanItems() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ month, planId, draft }: { month: string; planId: string; draft: PlanDraftItem[] }) => {
+      if (draft.length === 0) return;
+      const user_id = await currentUserId();
+      const { error } = await supabase.from("month_plan_items").insert(
+        draft.map((d) => ({ ...d, user_id, plan_id: planId })),
+      );
+      if (error) throw error;
+    },
+    onSuccess: (_r, { month }) => qc.invalidateQueries({ queryKey: ["month_plan", month] }),
+  });
+}
+
 export function useConfirmPlan(month: string) {
   const qc = useQueryClient();
   return useMutation({

@@ -9,6 +9,7 @@ import {
   useMonthPlan,
   useCreatePlanDraft,
   usePopulatePlanItems,
+  useAppendPlanItems,
   useConfirmPlan,
   useUpdatePlanItem,
   useAddPlanItem,
@@ -17,6 +18,7 @@ import {
 import { useRecurringRules } from "@/hooks/useRecurring";
 import { useAccounts, useTransactions } from "@/hooks/useSupabaseData";
 import { buildPlanDraft } from "@/lib/monthPlan";
+import { todayISO } from "@/lib/dates";
 import { fmt, fmt0, monthLabel } from "@/lib/format";
 import type { MonthPlanItem, PlanItemKind } from "@/lib/types";
 
@@ -40,6 +42,7 @@ export function MonthPlanSheet({ month, onClose }: { month: string; onClose: () 
   const { data: transactions = [], isLoading: lt } = useTransactions();
   const createDraft = useCreatePlanDraft();
   const populate = usePopulatePlanItems();
+  const append = useAppendPlanItems();
   const confirm = useConfirmPlan(month);
   const update = useUpdatePlanItem(month);
   const add = useAddPlanItem(month);
@@ -65,8 +68,18 @@ export function MonthPlanSheet({ month, onClose }: { month: string; onClose: () 
     ) {
       drafted.current = true;
       populate.mutate({ month, planId: data.plan.id, draft });
+    } else {
+      // Rules created after the plan was drafted: append their remaining
+      // occurrences (rules with no line in this plan, future dates only).
+      const known = new Set(data.items.map((i) => i.rule_id).filter(Boolean));
+      const today = todayISO();
+      const missing = draft.filter((d) => !known.has(d.rule_id) && d.due_date > today);
+      if (missing.length > 0) {
+        drafted.current = true;
+        append.mutate({ month, planId: data.plan.id, draft: missing });
+      }
     }
-  }, [isLoading, sourcesReady, data, createDraft, populate, month, rules, accounts, transactions]);
+  }, [isLoading, sourcesReady, data, createDraft, populate, append, month, rules, accounts, transactions]);
 
   const plan = data?.plan ?? null;
   const items = data?.items ?? [];
