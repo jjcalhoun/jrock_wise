@@ -64,6 +64,7 @@ export interface Transaction {
   external_id?: string | null;
   import_batch_id?: string | null;
   reviewed: boolean;
+  plan_item_id?: string | null; // fulfills this month-plan item (explicit link)
   created_at: string;
   updated_at: string;
   // joined
@@ -141,6 +142,32 @@ export interface RecurringRule {
   active: boolean;
   created_at: string;
   updated_at: string;
+}
+
+/* ---- Month plan (the "Free to spend" ledger) ---- */
+export type PlanItemKind = "income" | "bill" | "debt" | "savings" | "cc_payment";
+
+export interface MonthPlan {
+  id: string;
+  user_id: string;
+  month: string; // "YYYY-MM"
+  confirmed_at?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface MonthPlanItem {
+  id: string;
+  user_id: string;
+  plan_id: string;
+  rule_id?: string | null; // rule it was drafted from (snapshot — rule edits don't rewrite it)
+  name: string;
+  kind: PlanItemKind;
+  amount: number; // signed: income positive, outgoing negative
+  due_date?: string | null;
+  variable: boolean; // variable bills always confirm in review
+  excluded: boolean; // kept but not counted this month
+  created_at: string;
 }
 
 export interface SimplefinConnection {
