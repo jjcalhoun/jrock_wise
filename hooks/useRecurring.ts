@@ -55,6 +55,11 @@ export function useUpsertRecurringRule() {
       if (isNew && row && input.active !== false) {
         await appendRuleToCurrentPlan(user_id, { ...input, id: row.id as string });
       }
+      // Pausing a rule releases its not-yet-paid upcoming commitments so they
+      // stop dragging free-to-spend down.
+      if (!isNew && input.id && input.active === false) {
+        await excludeUnpaidFutureItems(input.id);
+      }
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["recurring_rules"] });
@@ -65,7 +70,7 @@ export function useUpsertRecurringRule() {
 
 async function appendRuleToCurrentPlan(user_id: string, rule: RecurringRuleInput & { id: string }) {
   const { occurrences } = await import("@/lib/recurring");
-  const { ruleKind } = await import("@/lib/monthPlan");
+  const { ruleKind, isVariableRule } = await import("@/lib/monthPlan");
   const { todayISO, endOfMonthISO } = await import("@/lib/dates");
 
   const today = todayISO();
@@ -102,6 +107,18 @@ async function appendRuleToCurrentPlan(user_id: string, rule: RecurringRuleInput
   ).filter((d) => d > today);
   if (dates.length === 0) return;
 
+  // Variable bills (history varies >5%) always confirm in review.
+  let variable = false;
+  if (kind !== "income") {
+    const { data: hist } = await supabase
+      .from("transactions")
+      .select("account_id, merchant, description, amount")
+      .eq("account_id", rule.account_id)
+      .order("date", { ascending: false })
+      .limit(120);
+    variable = isVariableRule(rule, hist ?? []);
+  }
+
   const mag = Math.abs(rule.amount);
   await supabase.from("month_plan_items").insert(
     dates.map((due_date) => ({
@@ -112,7 +129,7 @@ async function appendRuleToCurrentPlan(user_id: string, rule: RecurringRuleInput
       kind,
       amount: kind === "income" ? mag : -mag,
       due_date,
-      variable: false,
+      variable,
     })),
   );
 }
@@ -121,11 +138,40 @@ export function useDeleteRecurringRule() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (id: string) => {
+      // Release the rule's not-yet-paid commitments BEFORE deleting (the FK
+      // nulls rule_id on delete, which would orphan them as anonymous lines).
+      await excludeUnpaidFutureItems(id);
       const { error } = await supabase.from("recurring_rules").delete().eq("id", id);
       if (error) throw error;
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["recurring_rules"] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["recurring_rules"] });
+      qc.invalidateQueries({ queryKey: ["month_plan"] });
+    },
   });
+}
+
+/** Exclude a rule's future, unlinked plan items (used on pause/delete): a
+ *  commitment nobody is going to pay shouldn't reduce free-to-spend. Paid or
+ *  already-linked items are left alone — history stays truthful. */
+async function excludeUnpaidFutureItems(ruleId: string) {
+  const { todayISO } = await import("@/lib/dates");
+  const { data: items } = await supabase
+    .from("month_plan_items")
+    .select("id")
+    .eq("rule_id", ruleId)
+    .eq("excluded", false)
+    .gt("due_date", todayISO());
+  const ids = (items ?? []).map((i) => i.id as string);
+  if (ids.length === 0) return;
+  const { data: linked } = await supabase
+    .from("transactions")
+    .select("plan_item_id")
+    .in("plan_item_id", ids);
+  const taken = new Set((linked ?? []).map((t) => t.plan_item_id as string));
+  const toExclude = ids.filter((id) => !taken.has(id));
+  if (toExclude.length === 0) return;
+  await supabase.from("month_plan_items").update({ excluded: true }).in("id", toExclude);
 }
 
 /** Signatures of recurring suggestions the user has dismissed. */

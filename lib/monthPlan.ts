@@ -62,7 +62,10 @@ export function ruleKind(
 
 /** A rule is "variable" when its recent matching transactions vary >5% —
  *  variable commitments always pass through review instead of auto-filling. */
-export function isVariableRule(rule: RecurringRule, txns: Transaction[]): boolean {
+export function isVariableRule(
+  rule: Pick<RecurringRule, "name" | "account_id">,
+  txns: Pick<Transaction, "account_id" | "merchant" | "description" | "amount">[],
+): boolean {
   const r = norm(rule.name);
   const mags = txns
     .filter((t) => {
@@ -111,11 +114,12 @@ export function buildPlanDraft(
  *  from that rule for that due date (falling back to same-month when the date
  *  drifted). These never need user confirmation. */
 export function autoLinkByRule(
-  items: MonthPlanItem[],
-  transactions: Transaction[],
+  items: Pick<MonthPlanItem, "id" | "rule_id" | "excluded" | "due_date">[],
+  transactions: Pick<Transaction, "id" | "external_id" | "plan_item_id">[],
 ): Map<string, string> {
-  const byRuleDate = new Map<string, MonthPlanItem>();
-  const byRuleMonth = new Map<string, MonthPlanItem[]>();
+  type ItemRef = Pick<MonthPlanItem, "id" | "rule_id" | "excluded" | "due_date">;
+  const byRuleDate = new Map<string, ItemRef>();
+  const byRuleMonth = new Map<string, ItemRef[]>();
   for (const i of items) {
     if (!i.rule_id || i.excluded) continue;
     if (i.due_date) byRuleDate.set(`${i.rule_id}|${i.due_date}`, i);
