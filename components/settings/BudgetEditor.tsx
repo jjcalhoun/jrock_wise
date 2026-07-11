@@ -64,9 +64,8 @@ export function BudgetEditor({ onClose }: { onClose: () => void }) {
             onChange={(e) => setIncome(e.target.value)}
           />
           <p className="text-xs" style={{ color: "var(--color-faint)" }}>
-            Used to size the allocation below. Home and Insights show your
-            predicted income from recurring rules when you have them; this
-            estimate is the fallback until then.
+            Only sizes the allocation below. The dashboard&apos;s expected income
+            comes from your month plan (Profile → Month plan).
           </p>
         </div>
 
