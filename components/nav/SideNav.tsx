@@ -6,7 +6,6 @@ import { AppLogo } from "@/components/ui/AppLogo";
 
 const TABS = [
   { href: "/", label: "Home", icon: "home" },
-  { href: "/insights", label: "Insights", icon: "insights" },
   { href: "/activity", label: "Activity", icon: "grid_view" },
   { href: "/debt", label: "Debt", icon: "payments" },
   { href: "/profile", label: "Profile", icon: "person" },

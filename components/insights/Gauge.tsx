@@ -12,12 +12,15 @@ export interface GaugePetal {
   budget: number; // budgeted amount
   avg3: number; // 3-month average
   breakdown?: { label: string; value: number }[]; // optional detail (e.g. per-loan)
+  dim?: boolean; // committed but not yet paid — rendered translucent
 }
 
 interface Props {
   petals: GaugePetal[];
   income: number; // expected income — the arc's baseline scale
+  center?: { label: string; value: string; sub?: string }; // readout override
   onPetalClick?: (key: string) => void;
+  onCenterClick?: () => void; // e.g. open the ledger breakdown
 }
 
 /* Budget arc. The whole half-circle represents expected income; each petal is
@@ -70,18 +73,19 @@ function wedgePath(aH: number, aL: number): string {
 
 const pct = (v: number, total: number) => `${(v / total) * 100}%`;
 
-export function Gauge({ petals, income, onPetalClick }: Props) {
+export function Gauge({ petals, income, center, onPetalClick, onCenterClick }: Props) {
   const [active, setActive] = useState<string | null>(null);
 
-  // Petals are sized to scale by actual spend; the arc's full length is expected
-  // income, so the neutral remainder is income not yet spent.
+  // Petals are sized to scale by actual spend (or the committed amount for
+  // dimmed not-yet-paid segments, which sort after the solid ones); the arc's
+  // full length is expected income, so the neutral remainder is what's free.
   const sized = petals
     .map((p) => ({ ...p, size: Math.max(0, p.actual) }))
     .filter((p) => p.size > 0)
-    .sort((a, b) => b.size - a.size);
+    .sort((a, b) => (a.dim === b.dim ? b.size - a.size : a.dim ? 1 : -1));
 
   const totalSize = sized.reduce((s, p) => s + p.size, 0);
-  const totalActual = totalSize;
+  const totalActual = sized.filter((p) => !p.dim).reduce((s, p) => s + p.size, 0);
   const denom = Math.max(income, totalSize, 1);
 
   // Every petal gets a floor of MIN_SPAN degrees so even tiny categories stay
@@ -117,8 +121,8 @@ export function Gauge({ petals, income, onPetalClick }: Props) {
         />
         {wedges.map((w) => (
           <g key={w.p.key}>
-            {/* solid petal, sized by actual spend */}
-            <path d={wedgePath(w.aH, w.aL)} fill={w.p.color} />
+            {/* solid petal (dimmed while committed-but-unpaid) */}
+            <path d={wedgePath(w.aH, w.aL)} fill={w.p.color} opacity={w.p.dim ? 0.38 : 1} />
             {/* active ring */}
             {active === w.p.key && (
               <path d={wedgePath(w.aH, w.aL)} fill="none" stroke="#fff" strokeOpacity={0.5} strokeWidth={1.5} />
@@ -166,17 +170,24 @@ export function Gauge({ petals, income, onPetalClick }: Props) {
         ) : null,
       )}
 
-      {/* center readout — must not intercept taps meant for the petals behind it */}
+      {/* center readout — petal taps pass through; only the text block itself
+          becomes a hit target when the center is actionable */}
       <div className="absolute inset-x-0 text-center pointer-events-none" style={{ top: pct(CY - 92, VB_H) }}>
-        <p className="text-xs" style={{ color: "var(--color-muted)" }}>
-          Spent
-        </p>
-        <p className="font-figure text-[32px] font-bold leading-tight" style={{ color: "var(--color-text)" }}>
-          {fmt0(totalActual)}
-        </p>
-        <p className="text-xs" style={{ color: "var(--color-faint)" }}>
-          of {fmt0(income)} income
-        </p>
+        <div
+          className={`inline-block ${onCenterClick ? "pointer-events-auto cursor-pointer active:opacity-70" : ""}`}
+          onClick={onCenterClick}
+          role={onCenterClick ? "button" : undefined}
+        >
+          <p className="text-xs" style={{ color: "var(--color-muted)" }}>
+            {center?.label ?? "Spent"}
+          </p>
+          <p className="font-figure text-[32px] font-bold leading-tight" style={{ color: "var(--color-text)" }}>
+            {center?.value ?? fmt0(totalActual)}
+          </p>
+          <p className="text-xs" style={{ color: "var(--color-faint)" }}>
+            {center?.sub ?? `of ${fmt0(income)} income`}
+          </p>
+        </div>
       </div>
 
       {/* tooltip */}
@@ -195,12 +206,20 @@ export function Gauge({ petals, income, onPetalClick }: Props) {
           <p className="text-xs font-semibold mb-0.5" style={{ color: "var(--color-text)" }}>
             {activePetal.p.label}
           </p>
-          <p className="text-[11px]" style={{ color: "var(--color-muted)" }}>
-            {fmt0(activePetal.p.actual)} of {fmt0(activePetal.p.budget)} budget
-          </p>
-          <p className="text-[11px]" style={{ color: "var(--color-faint)" }}>
-            3-mo avg {fmt0(activePetal.p.avg3)}
-          </p>
+          {activePetal.p.dim ? (
+            <p className="text-[11px]" style={{ color: "var(--color-muted)" }}>
+              {fmt0(activePetal.p.actual)} upcoming — not paid yet
+            </p>
+          ) : (
+            <>
+              <p className="text-[11px]" style={{ color: "var(--color-muted)" }}>
+                {fmt0(activePetal.p.actual)} of {fmt0(activePetal.p.budget)} budget
+              </p>
+              <p className="text-[11px]" style={{ color: "var(--color-faint)" }}>
+                3-mo avg {fmt0(activePetal.p.avg3)}
+              </p>
+            </>
+          )}
           {activePetal.p.breakdown && activePetal.p.breakdown.length > 0 && (
             <div className="mt-1 pt-1 space-y-0.5" style={{ borderTop: "1px solid var(--color-hairline)" }}>
               {activePetal.p.breakdown.map((b) => (
