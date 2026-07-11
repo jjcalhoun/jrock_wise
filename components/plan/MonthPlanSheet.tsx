@@ -8,6 +8,7 @@ import { Card } from "@/components/ui/Card";
 import {
   useMonthPlan,
   useCreatePlanDraft,
+  usePopulatePlanItems,
   useConfirmPlan,
   useUpdatePlanItem,
   useAddPlanItem,
@@ -34,10 +35,11 @@ const KIND_LABEL: Record<PlanItemKind, string> = {
 
 export function MonthPlanSheet({ month, onClose }: { month: string; onClose: () => void }) {
   const { data, isLoading } = useMonthPlan(month);
-  const { data: rules = [] } = useRecurringRules();
-  const { data: accounts = [] } = useAccounts();
-  const { data: transactions = [] } = useTransactions();
+  const { data: rules = [], isLoading: lr } = useRecurringRules();
+  const { data: accounts = [], isLoading: la } = useAccounts();
+  const { data: transactions = [], isLoading: lt } = useTransactions();
   const createDraft = useCreatePlanDraft();
+  const populate = usePopulatePlanItems();
   const confirm = useConfirmPlan(month);
   const update = useUpdatePlanItem(month);
   const add = useAddPlanItem(month);
@@ -45,12 +47,26 @@ export function MonthPlanSheet({ month, onClose }: { month: string; onClose: () 
   const [adding, setAdding] = useState(false);
   const drafted = useRef(false);
 
-  // First open of a month with no plan yet → draft it from the rules.
+  // Draft the plan from the rules — but only once every source query has
+  // loaded, otherwise we'd snapshot an empty rule list and create a bare plan.
+  const sourcesReady = !lr && !la && !lt;
   useEffect(() => {
-    if (isLoading || data?.plan || drafted.current || createDraft.isPending) return;
-    drafted.current = true;
-    createDraft.mutate({ month, draft: buildPlanDraft(rules, month, accounts, transactions) });
-  }, [isLoading, data, createDraft, month, rules, accounts, transactions]);
+    if (isLoading || !sourcesReady || drafted.current) return;
+    const draft = buildPlanDraft(rules, month, accounts, transactions);
+    if (!data?.plan) {
+      drafted.current = true;
+      createDraft.mutate({ month, draft });
+    } else if (
+      // Self-heal: an unconfirmed plan with no items (created before the rules
+      // had loaded) gets populated in place.
+      !data.plan.confirmed_at &&
+      data.items.length === 0 &&
+      draft.length > 0
+    ) {
+      drafted.current = true;
+      populate.mutate({ month, planId: data.plan.id, draft });
+    }
+  }, [isLoading, sourcesReady, data, createDraft, populate, month, rules, accounts, transactions]);
 
   const plan = data?.plan ?? null;
   const items = data?.items ?? [];
@@ -74,7 +90,7 @@ export function MonthPlanSheet({ month, onClose }: { month: string; onClose: () 
           month, and tap an amount to adjust it.
         </p>
 
-        {(isLoading || createDraft.isPending) && (
+        {(isLoading || !sourcesReady || createDraft.isPending || populate.isPending) && (
           <p className="text-sm text-center py-4" style={{ color: "var(--color-faint)" }}>
             Drafting from your recurring rules…
           </p>

@@ -73,6 +73,29 @@ export function useCreatePlanDraft() {
   });
 }
 
+/** Insert draft items into an existing (empty, unconfirmed) plan — repairs a
+    plan that was created before the rules had loaded. */
+export function usePopulatePlanItems() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ month, planId, draft }: { month: string; planId: string; draft: PlanDraftItem[] }) => {
+      if (draft.length === 0) return;
+      const user_id = await currentUserId();
+      // Only ever populate a plan that is still empty (guards double-insert).
+      const { count } = await supabase
+        .from("month_plan_items")
+        .select("id", { count: "exact", head: true })
+        .eq("plan_id", planId);
+      if ((count ?? 0) > 0) return;
+      const { error } = await supabase.from("month_plan_items").insert(
+        draft.map((d) => ({ ...d, user_id, plan_id: planId })),
+      );
+      if (error) throw error;
+    },
+    onSuccess: (_r, { month }) => qc.invalidateQueries({ queryKey: ["month_plan", month] }),
+  });
+}
+
 export function useConfirmPlan(month: string) {
   const qc = useQueryClient();
   return useMutation({
