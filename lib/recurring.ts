@@ -90,6 +90,17 @@ export async function generateRecurring(
   let inserted = 0;
   const errors: string[] = [];
 
+  // Plan items drafted from these rules — generated rows link to them so the
+  // free-to-spend ledger marks the commitment paid instead of double-counting.
+  const { data: planItems } = await supabase
+    .from("month_plan_items")
+    .select("id, rule_id, due_date")
+    .eq("user_id", userId)
+    .not("rule_id", "is", null);
+  const itemByRuleDate = new Map<string, string>(
+    (planItems ?? []).map((i) => [`${i.rule_id}|${i.due_date}`, i.id as string]),
+  );
+
   for (const rule of (rules ?? []) as RecurringRule[]) {
     // On a MANUAL account, pre-post the rest of this month so the items are
     // committed to the budget from the 1st (the balance view ignores dates in
@@ -139,6 +150,7 @@ export async function generateRecurring(
             source: "recurring",
             external_id: externalId,
             reviewed: rule.auto_review,
+            plan_item_id: itemByRuleDate.get(`${rule.id}|${date}`) ?? null,
           })
           .select("id")
           .single();
@@ -174,6 +186,9 @@ export async function generateRecurring(
             source: "recurring",
             external_id: `${externalId}:c`,
             reviewed: rule.auto_review,
+            // Same plan item as the primary leg — the ledger counts a linked
+            // pair once (it prefers the outflow leg).
+            plan_item_id: itemByRuleDate.get(`${rule.id}|${date}`) ?? null,
           });
           if (cErr) {
             // Roll back the primary so the pair is retried atomically next run.

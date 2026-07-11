@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildPlanDraft, isVariableRule, ledger, ruleKind } from "./monthPlan";
+import { autoLinkByRule, buildPlanDraft, isVariableRule, ledger, ruleKind, suggestPlanItem } from "./monthPlan";
 import type { Account, MonthPlanItem, RecurringRule, Transaction, TransactionSplit } from "./types";
 
 /* ---------- fixtures ---------- */
@@ -246,5 +246,77 @@ describe("ledger", () => {
     const txns = [tx({ id: "1", date: "2026-07-31", amount: -999 })];
     const l = ledger([income], txns, MONTH, CTX);
     expect(l.discretionary).toBe(0);
+  });
+
+  it("applies an auto-link overlay like an explicit link", () => {
+    const txns = [tx({ id: "1", date: "2026-08-15", amount: -120, source: "recurring" })];
+    const overlay = new Map([["1", "b1"]]);
+    const l = ledger([income, bill], txns, MONTH, CTX, overlay);
+    expect(l.items.find((i) => i.id === "b1")?.status).toBe("paid");
+    expect(l.discretionary).toBe(0);
+  });
+});
+
+/* ---------- matching ---------- */
+
+describe("autoLinkByRule", () => {
+  const debtItem = item({ id: "d1", kind: "debt", amount: -500, rule_id: "rr1", due_date: "2026-08-15" });
+
+  it("links both legs of a rule-generated pair to the item", () => {
+    const txns = [
+      tx({ id: "1", date: "2026-08-15", amount: -500, type: "transfer", external_id: "recurring:rr1:2026-08-15" }),
+      tx({ id: "2", date: "2026-08-15", amount: 500, account_id: "loan", type: "transfer", external_id: "recurring:rr1:2026-08-15:c" }),
+    ];
+    const links = autoLinkByRule([debtItem], txns);
+    expect(links.get("1")).toBe("d1");
+    expect(links.get("2")).toBe("d1");
+  });
+
+  it("falls back to same-month when the date drifted, and skips foreign rules", () => {
+    const txns = [
+      tx({ id: "1", date: "2026-08-16", amount: -500, type: "transfer", external_id: "recurring:rr1:2026-08-16" }),
+      tx({ id: "2", date: "2026-08-15", amount: -50, external_id: "recurring:OTHER:2026-08-15" }),
+      tx({ id: "3", date: "2026-08-15", amount: -50, merchant: "Manual" }),
+    ];
+    const links = autoLinkByRule([debtItem], txns);
+    expect(links.get("1")).toBe("d1");
+    expect(links.has("2")).toBe(false);
+    expect(links.has("3")).toBe(false);
+  });
+
+  it("does not link two different occurrences to one item", () => {
+    const txns = [
+      tx({ id: "1", date: "2026-08-01", amount: -500, external_id: "recurring:rr1:2026-08-01" }),
+      tx({ id: "2", date: "2026-08-16", amount: -500, external_id: "recurring:rr1:2026-08-16" }),
+    ];
+    const links = autoLinkByRule([debtItem], txns);
+    expect([...links.values()].filter((v) => v === "d1")).toHaveLength(1);
+  });
+});
+
+describe("suggestPlanItem", () => {
+  const bill = item({ id: "b1", kind: "bill", amount: -120, name: "Duke Energy" });
+  const incomeItem = item({ id: "i1", kind: "income", amount: 2000, name: "Paycheck" });
+  const open = new Set(["b1", "i1"]);
+
+  it("suggests a variable bill by name + amount window", () => {
+    const t = tx({ id: "1", date: "2026-08-16", amount: -131, merchant: "DUKE ENERGY BILLPAY 0042" });
+    expect(suggestPlanItem(t, [bill, incomeItem], open)?.id).toBe("b1");
+  });
+
+  it("does not suggest for an unrelated merchant even with a close amount", () => {
+    const t = tx({ id: "1", date: "2026-08-16", amount: -121, merchant: "Groceries" });
+    expect(suggestPlanItem(t, [bill], open)).toBeNull();
+  });
+
+  it("suggests income on amount alone", () => {
+    const t = tx({ id: "1", date: "2026-08-01", amount: 2050, type: "income", merchant: "ADP TOTALSOURCE DES:PAY" });
+    expect(suggestPlanItem(t, [bill, incomeItem], open)?.id).toBe("i1");
+  });
+
+  it("never suggests an already-filled or excluded item", () => {
+    const t = tx({ id: "1", date: "2026-08-16", amount: -120, merchant: "Duke Energy" });
+    expect(suggestPlanItem(t, [bill], new Set())).toBeNull();
+    expect(suggestPlanItem(t, [{ ...bill, excluded: true }], open)).toBeNull();
   });
 });
