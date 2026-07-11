@@ -15,6 +15,32 @@ async function currentUserId(): Promise<string> {
   return user.id;
 }
 
+/** Persist deterministic rule-links onto this month's already-generated
+ *  transactions (rows created before the plan existed carry no plan_item_id;
+ *  the ledger's read-time overlay covers the math, but review and the editor
+ *  read explicit links, so write them down). */
+async function persistRuleLinks(month: string, planId: string) {
+  const { autoLinkByRule } = await import("@/lib/monthPlan");
+  const [y, m] = month.split("-").map(Number);
+  const nextMonth = `${m === 12 ? y + 1 : y}-${String(m === 12 ? 1 : m + 1).padStart(2, "0")}-01`;
+
+  const [{ data: items }, { data: txns }] = await Promise.all([
+    supabase.from("month_plan_items").select("id, rule_id, excluded, due_date").eq("plan_id", planId),
+    supabase
+      .from("transactions")
+      .select("id, external_id, plan_item_id")
+      .gte("date", `${month}-01`)
+      .lt("date", nextMonth)
+      .like("external_id", "recurring:%")
+      .is("plan_item_id", null),
+  ]);
+  const links = autoLinkByRule(items ?? [], txns ?? []);
+  for (const [txnId, itemId] of links) {
+    await supabase.from("transactions").update({ plan_item_id: itemId }).eq("id", txnId);
+  }
+  return links.size;
+}
+
 export interface MonthPlanWithItems {
   plan: MonthPlan | null;
   items: MonthPlanItem[];
@@ -66,10 +92,14 @@ export function useCreatePlanDraft() {
           draft.map((d) => ({ ...d, user_id, plan_id: plan.id })),
         );
         if (iErr) throw iErr;
+        await persistRuleLinks(month, plan.id as string);
       }
       return plan.id as string;
     },
-    onSuccess: (_id, { month }) => qc.invalidateQueries({ queryKey: ["month_plan", month] }),
+    onSuccess: (_id, { month }) => {
+      qc.invalidateQueries({ queryKey: ["month_plan", month] });
+      qc.invalidateQueries({ queryKey: ["transactions"] });
+    },
   });
 }
 
@@ -91,8 +121,12 @@ export function usePopulatePlanItems() {
         draft.map((d) => ({ ...d, user_id, plan_id: planId })),
       );
       if (error) throw error;
+      await persistRuleLinks(month, planId);
     },
-    onSuccess: (_r, { month }) => qc.invalidateQueries({ queryKey: ["month_plan", month] }),
+    onSuccess: (_r, { month }) => {
+      qc.invalidateQueries({ queryKey: ["month_plan", month] });
+      qc.invalidateQueries({ queryKey: ["transactions"] });
+    },
   });
 }
 
@@ -108,8 +142,12 @@ export function useAppendPlanItems() {
         draft.map((d) => ({ ...d, user_id, plan_id: planId })),
       );
       if (error) throw error;
+      await persistRuleLinks(month, planId);
     },
-    onSuccess: (_r, { month }) => qc.invalidateQueries({ queryKey: ["month_plan", month] }),
+    onSuccess: (_r, { month }) => {
+      qc.invalidateQueries({ queryKey: ["month_plan", month] });
+      qc.invalidateQueries({ queryKey: ["transactions"] });
+    },
   });
 }
 
