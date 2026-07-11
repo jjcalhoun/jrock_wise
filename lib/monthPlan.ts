@@ -104,6 +104,88 @@ export function buildPlanDraft(
   return out.sort((a, b) => (a.due_date < b.due_date ? -1 : a.due_date > b.due_date ? 1 : 0));
 }
 
+/* ---------- matching: suggestions + deterministic auto-links ---------- */
+
+/** Deterministic links for rule-generated transactions: a row whose
+ *  external_id is `recurring:<ruleId>:<date>` fulfills the plan item drafted
+ *  from that rule for that due date (falling back to same-month when the date
+ *  drifted). These never need user confirmation. */
+export function autoLinkByRule(
+  items: MonthPlanItem[],
+  transactions: Transaction[],
+): Map<string, string> {
+  const byRuleDate = new Map<string, MonthPlanItem>();
+  const byRuleMonth = new Map<string, MonthPlanItem[]>();
+  for (const i of items) {
+    if (!i.rule_id || i.excluded) continue;
+    if (i.due_date) byRuleDate.set(`${i.rule_id}|${i.due_date}`, i);
+    const mk = i.due_date ? i.due_date.slice(0, 7) : "";
+    const arr = byRuleMonth.get(`${i.rule_id}|${mk}`);
+    if (arr) arr.push(i);
+    else byRuleMonth.set(`${i.rule_id}|${mk}`, [i]);
+  }
+
+  const links = new Map<string, string>();
+  const taken = new Set<string>();
+  // A two-sided pair shares one item: legs carry external_id `X` and `X:c`,
+  // so remember the assignment under the base id and let the twin reuse it.
+  const byPair = new Map<string, string>();
+  for (const t of transactions) {
+    if (t.plan_item_id) continue; // already explicitly linked
+    const ext = t.external_id ?? "";
+    const m = /^recurring:([^:]+):(\d{4}-\d{2}-\d{2})/.exec(ext);
+    if (!m) continue;
+    const base = ext.endsWith(":c") ? ext.slice(0, -2) : ext;
+
+    const paired = byPair.get(base);
+    if (paired) {
+      links.set(t.id, paired);
+      continue;
+    }
+    const exact = byRuleDate.get(`${m[1]}|${m[2]}`);
+    const candidate =
+      exact && !taken.has(exact.id)
+        ? exact
+        : (byRuleMonth.get(`${m[1]}|${m[2].slice(0, 7)}`) ?? []).find((i) => !taken.has(i.id));
+    if (!candidate) continue;
+    links.set(t.id, candidate.id);
+    taken.add(candidate.id);
+    byPair.set(base, candidate.id);
+  }
+  return links;
+}
+
+/** Suggest the open plan item a transaction most likely fulfills (for review
+ *  to confirm — suggestions are never applied silently). */
+export function suggestPlanItem(
+  txn: Transaction,
+  items: MonthPlanItem[],
+  openItemIds: Set<string>,
+  amountTolPct = 15,
+): MonthPlanItem | null {
+  const inflow = txn.amount > 0;
+  const mTxn = norm(txn.merchant || txn.description || "");
+  let best: MonthPlanItem | null = null;
+  let bestDiff = Infinity;
+  for (const item of items) {
+    if (item.excluded || !openItemIds.has(item.id)) continue;
+    if (inflow !== (item.kind === "income")) continue;
+    const planned = Math.abs(item.amount);
+    const diff = Math.abs(Math.abs(txn.amount) - planned);
+    const withinAmount = planned > 0 && diff <= (planned * amountTolPct) / 100;
+    const mItem = norm(item.name);
+    const nameHit = !!mTxn && !!mItem && (mTxn === mItem || mTxn.includes(mItem) || mItem.includes(mTxn));
+    // income: amount alone is enough (deposit descriptors rarely match names);
+    // outgoing: require the name unless the amount is exact to the cent
+    const ok = item.kind === "income" ? withinAmount : (nameHit && withinAmount) || diff < 0.005;
+    if (ok && diff < bestDiff) {
+      best = item;
+      bestDiff = diff;
+    }
+  }
+  return best;
+}
+
 /* ---------- the ledger ---------- */
 
 export interface LedgerItem extends MonthPlanItem {
@@ -148,15 +230,20 @@ export function ledger(
   transactions: Transaction[],
   month: string,
   ctx: LedgerContext,
+  /** extra txn→item links (e.g. autoLinkByRule) applied on top of plan_item_id */
+  linkOverlay?: Map<string, string>,
 ): Ledger {
   const monthTxns = transactions.filter((t) => monthKey(t.date) === month);
 
+  const linkOf = (t: Transaction) => t.plan_item_id ?? linkOverlay?.get(t.id) ?? null;
+
   const linkedByItem = new Map<string, Transaction[]>();
   for (const t of monthTxns) {
-    if (!t.plan_item_id) continue;
-    const arr = linkedByItem.get(t.plan_item_id);
+    const itemId = linkOf(t);
+    if (!itemId) continue;
+    const arr = linkedByItem.get(itemId);
     if (arr) arr.push(t);
-    else linkedByItem.set(t.plan_item_id, [t]);
+    else linkedByItem.set(itemId, [t]);
   }
 
   let expectedIncome = 0;
@@ -185,7 +272,7 @@ export function ledger(
   let extraIncome = 0;
   let discretionary = 0;
   for (const t of monthTxns) {
-    if (t.plan_item_id) continue;
+    if (linkOf(t)) continue;
 
     if (t.type === "income") {
       extraIncome += t.amount;

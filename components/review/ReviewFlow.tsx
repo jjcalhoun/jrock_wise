@@ -9,6 +9,9 @@ import {
   useResolveTransfer,
 } from "@/hooks/useSupabaseData";
 import { useUpsertRecurringRule } from "@/hooks/useRecurring";
+import { useMonthPlan, useLinkTransaction } from "@/hooks/useMonthPlan";
+import { suggestPlanItem } from "@/lib/monthPlan";
+import { monthKey } from "@/lib/aggregations";
 import { CategoryGrid } from "@/components/transactions/CategoryGrid";
 import { Button } from "@/components/ui/Button";
 import { Chip } from "@/components/ui/Chip";
@@ -30,6 +33,7 @@ export function ReviewFlow({ onClose }: { onClose: () => void }) {
   const review = useReviewTransaction();
   const resolveTransfer = useResolveTransfer();
   const upsertRule = useUpsertRecurringRule();
+  const linkTxn = useLinkTransaction();
 
   // snapshot the queue once so it stays stable as we review through it
   const [queue, setQueue] = useState<Transaction[]>([]);
@@ -50,17 +54,64 @@ export function ReviewFlow({ onClose }: { onClose: () => void }) {
   const [transferAccountId, setTransferAccountId] = useState("");
   const [makeRecurring, setMakeRecurring] = useState(false);
   const [recurFreq, setRecurFreq] = useState<RecurringFrequency>("monthly");
+  const [planItemId, setPlanItemId] = useState("");
+
+  // Month plan for the transaction's month — open (unfilled) items can be
+  // matched here so the ledger marks the commitment paid.
+  const txnMonth = txn ? monthKey(txn.date) : "";
+  const { data: planData } = useMonthPlan(txnMonth);
+  const openItems = useMemo(() => {
+    const items = planData?.items ?? [];
+    const filled = new Set(
+      transactions.filter((t) => t.plan_item_id && t.id !== txn?.id).map((t) => t.plan_item_id as string),
+    );
+    return items.filter((i) => !i.excluded && !filled.has(i.id));
+  }, [planData, transactions, txn]);
+  const suggested = useMemo(
+    () => (txn ? suggestPlanItem(txn, openItems, new Set(openItems.map((i) => i.id))) : null),
+    [txn, openItems],
+  );
+
+  // Payee memory: if we've previously assigned this merchant as a transfer,
+  // pre-suggest the same destination (extra debt payments, checks, etc.).
+  const rememberedTransfer = useMemo(() => {
+    if (!txn || txn.amount > 0) return null;
+    const m = (txn.merchant || txn.description || "").toLowerCase().trim();
+    if (!m) return null;
+    const prior = transactions.find(
+      (t) =>
+        t.id !== txn.id &&
+        t.reviewed &&
+        t.type === "transfer" &&
+        t.transfer_account_id &&
+        t.account_id === txn.account_id &&
+        (t.merchant || t.description || "").toLowerCase().trim() === m,
+    );
+    return prior?.transfer_account_id ?? null;
+  }, [txn, transactions]);
 
   // reset selections whenever the current transaction changes
   useEffect(() => {
     if (!txn) return;
-    setType(txn.amount > 0 ? "income" : "expense");
+    if (rememberedTransfer) {
+      setType("transfer");
+      setTransferAccountId(rememberedTransfer);
+    } else {
+      setType(txn.amount > 0 ? "income" : "expense");
+      setTransferAccountId("");
+    }
     setCategoryId("");
     setBucket("needs");
-    setTransferAccountId("");
     setMakeRecurring(false);
     setRecurFreq("monthly");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [txn]);
+
+  // Preselect the suggested planned payment (user can deselect).
+  useEffect(() => {
+    setPlanItemId(suggested?.id ?? "");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [txn, suggested?.id]);
 
   function pickTransferAccount(id: string) {
     setTransferAccountId(id);
@@ -98,6 +149,10 @@ export function ReviewFlow({ onClose }: { onClose: () => void }) {
           ? [{ category_id: categoryId, bucket, amount: txn.amount }]
           : undefined,
       });
+    }
+    // Link to the planned payment it fulfills (ledger marks it paid).
+    if (planItemId) {
+      await linkTxn.mutateAsync({ txnId: txn.id, planItemId });
     }
     // Optionally create a recurring rule from this transaction (future occurrences only).
     if (makeRecurring && type !== "refund") {
@@ -262,6 +317,38 @@ export function ReviewFlow({ onClose }: { onClose: () => void }) {
               <p className="text-sm" style={{ color: "var(--color-faint)" }}>
                 Income needs no category — just save.
               </p>
+            )}
+
+            {/* Planned payment match */}
+            {type !== "refund" && openItems.length > 0 && (
+              <div
+                className="rounded-[10px] p-3 space-y-2.5"
+                style={{
+                  background: "var(--color-surface)",
+                  border: planItemId ? "1px solid var(--color-primary)" : "1px solid transparent",
+                }}
+              >
+                <p className="text-sm" style={{ color: "var(--color-text)" }}>
+                  {suggested && planItemId === suggested.id ? (
+                    <>Matched to planned: <span className="font-semibold">{suggested.name}</span>{" "}
+                      <span style={{ color: "var(--color-faint)" }}>({fmt(suggested.amount)} planned)</span></>
+                  ) : (
+                    "Fulfills a planned payment?"
+                  )}
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  <Chip active={planItemId === ""} onClick={() => setPlanItemId("")}>
+                    None
+                  </Chip>
+                  {openItems
+                    .filter((i) => (txn.amount > 0) === (i.kind === "income"))
+                    .map((i) => (
+                      <Chip key={i.id} active={planItemId === i.id} onClick={() => setPlanItemId(i.id)}>
+                        {i.name} · {fmt(i.amount)}
+                      </Chip>
+                    ))}
+                </div>
+              </div>
             )}
 
             {/* Make recurring */}
