@@ -106,6 +106,15 @@ export function Gauge({ petals, income, center, onPetalClick, onCenterClick }: P
     return { p, aH, aL, mid, span };
   });
   const remainderSpan = Math.max(0, (denom - totalSize) / denom) * flexible;
+  const remainderValue = Math.max(0, denom - totalSize);
+  const remainder =
+    remainderSpan > GAP
+      ? {
+          aH: cursor - GAP / 2,
+          aL: cursor - remainderSpan + GAP / 2,
+          mid: cursor - remainderSpan / 2,
+        }
+      : null;
 
   const activePetal = wedges.find((w) => w.p.key === active);
 
@@ -142,12 +151,21 @@ export function Gauge({ petals, income, center, onPetalClick, onCenterClick }: P
           </g>
         ))}
         {/* neutral remainder (unallocated income) */}
-        {remainderSpan > GAP && (
-          <path
-            d={wedgePath(cursor - GAP / 2, cursor - remainderSpan + GAP / 2)}
-            fill={REMAIN_COLOR}
-            opacity={0.5}
-          />
+        {remainder && (
+          <g>
+            <path d={wedgePath(remainder.aH, remainder.aL)} fill={REMAIN_COLOR} opacity={0.5} />
+            {active === "__remain" && (
+              <path d={wedgePath(remainder.aH, remainder.aL)} fill="none" stroke="#fff" strokeOpacity={0.5} strokeWidth={1.5} />
+            )}
+            <path
+              d={wedgePath(remainder.aH, remainder.aL)}
+              fill="transparent"
+              style={{ pointerEvents: "all", touchAction: "manipulation" }}
+              onMouseEnter={() => setActive("__remain")}
+              onMouseLeave={() => setActive((k) => (k === "__remain" ? null : k))}
+              onClick={() => setActive("__remain")}
+            />
+          </g>
         )}
       </svg>
 
@@ -232,6 +250,28 @@ export function Gauge({ petals, income, center, onPetalClick, onCenterClick }: P
               ))}
             </div>
           )}
+        </div>
+      )}
+
+      {/* remainder tooltip */}
+      {active === "__remain" && remainder && (
+        <div
+          className="absolute z-10 -translate-x-1/2 -translate-y-full rounded-[10px] px-3 py-2 pointer-events-none shadow-lg"
+          style={{
+            left: pct(pt(RC, remainder.mid)[0], VB_W),
+            top: `calc(${pct(pt(Ro, remainder.mid)[1], VB_H)} - 6px)`,
+            background: "var(--color-elevated)",
+            border: "1px solid var(--color-hairline)",
+            minWidth: 150,
+            maxWidth: 220,
+          }}
+        >
+          <p className="text-xs font-semibold mb-0.5" style={{ color: "var(--color-text)" }}>
+            {center?.label ?? "Remaining"}
+          </p>
+          <p className="text-[11px]" style={{ color: "var(--color-muted)" }}>
+            {fmt0(remainderValue)} of {fmt0(income)} — not spent or committed
+          </p>
         </div>
       )}
     </div>
