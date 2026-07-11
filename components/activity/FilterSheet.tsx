@@ -9,6 +9,7 @@ import type { Category, TransactionType } from "@/lib/types";
 
 export interface ActivityFilters {
   type: TransactionType | "all";
+  recurring: "all" | "recurring" | "other"; // rule-generated or plan-linked vs the rest
   categoryId: string | null;
   year: number | null;
   month: number | null; // 1-12
@@ -18,6 +19,7 @@ export interface ActivityFilters {
 
 export const EMPTY_FILTERS: ActivityFilters = {
   type: "all",
+  recurring: "all",
   categoryId: null,
   year: null,
   month: null,
@@ -28,6 +30,7 @@ export const EMPTY_FILTERS: ActivityFilters = {
 export function activeFilterCount(f: ActivityFilters): number {
   let n = 0;
   if (f.type !== "all") n++;
+  if (f.recurring !== "all") n++;
   if (f.categoryId) n++;
   if (f.year) n++;
   if (f.month) n++;
@@ -62,6 +65,20 @@ export function FilterSheet({ filters, categories, years, onApply, onClose }: Pr
                 {t === "all" ? "All" : t[0].toUpperCase() + t.slice(1)}
               </Chip>
             ))}
+          </div>
+        </Section>
+
+        {/* recurring */}
+        <Section label="Recurring">
+          <div className="flex flex-wrap gap-2">
+            <Chip active={f.recurring === "all"} onClick={() => set({ recurring: "all" })}>All</Chip>
+            <Chip active={f.recurring === "recurring"} onClick={() => set({ recurring: "recurring" })}>
+              <span className="material-symbols-outlined" style={{ fontSize: 15 }}>repeat</span>
+              Recurring only
+            </Chip>
+            <Chip active={f.recurring === "other"} onClick={() => set({ recurring: "other" })}>
+              Not recurring
+            </Chip>
           </div>
         </Section>
 
