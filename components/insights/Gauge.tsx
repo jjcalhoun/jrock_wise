@@ -73,6 +73,10 @@ function wedgePath(aH: number, aL: number): string {
 
 const pct = (v: number, total: number) => `${(v / total) * 100}%`;
 
+/** Petals near the top of the arc (roughly 55°–125°) get their tooltip BELOW
+ *  the petal, inside the arc — above-the-petal would clip past the viewport. */
+const tooltipFlips = (midDeg: number) => midDeg > 55 && midDeg < 125;
+
 export function Gauge({ petals, income, center, onPetalClick, onCenterClick }: Props) {
   const [active, setActive] = useState<string | null>(null);
 
@@ -208,13 +212,16 @@ export function Gauge({ petals, income, center, onPetalClick, onCenterClick }: P
         </div>
       </div>
 
-      {/* tooltip */}
+      {/* tooltip — flips below the petal (inside the arc) near the top of the
+          viewbox, where an above-the-petal tooltip would clip off-screen */}
       {activePetal && (
         <div
-          className="absolute z-10 -translate-x-1/2 -translate-y-full rounded-[10px] px-3 py-2 pointer-events-none shadow-lg"
+          className={`absolute z-10 -translate-x-1/2 ${tooltipFlips(activePetal.mid) ? "" : "-translate-y-full"} rounded-[10px] px-3 py-2 pointer-events-none shadow-lg`}
           style={{
             left: pct(pt(RC, activePetal.mid)[0], VB_W),
-            top: `calc(${pct(pt(Ro, activePetal.mid)[1], VB_H)} - 6px)`,
+            top: tooltipFlips(activePetal.mid)
+              ? `calc(${pct(pt(Ri - 6, activePetal.mid)[1], VB_H)} + 6px)`
+              : `calc(${pct(pt(Ro, activePetal.mid)[1], VB_H)} - 6px)`,
             background: "var(--color-elevated)",
             border: "1px solid var(--color-hairline)",
             minWidth: 150,
@@ -256,10 +263,12 @@ export function Gauge({ petals, income, center, onPetalClick, onCenterClick }: P
       {/* remainder tooltip */}
       {active === "__remain" && remainder && (
         <div
-          className="absolute z-10 -translate-x-1/2 -translate-y-full rounded-[10px] px-3 py-2 pointer-events-none shadow-lg"
+          className={`absolute z-10 -translate-x-1/2 ${tooltipFlips(remainder.mid) ? "" : "-translate-y-full"} rounded-[10px] px-3 py-2 pointer-events-none shadow-lg`}
           style={{
             left: pct(pt(RC, remainder.mid)[0], VB_W),
-            top: `calc(${pct(pt(Ro, remainder.mid)[1], VB_H)} - 6px)`,
+            top: tooltipFlips(remainder.mid)
+              ? `calc(${pct(pt(Ri - 6, remainder.mid)[1], VB_H)} + 6px)`
+              : `calc(${pct(pt(Ro, remainder.mid)[1], VB_H)} - 6px)`,
             background: "var(--color-elevated)",
             border: "1px solid var(--color-hairline)",
             minWidth: 150,
