@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Sheet } from "@/components/ui/Sheet";
 import { Input } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
@@ -8,16 +8,24 @@ import { Chip } from "@/components/ui/Chip";
 import {
   useAccounts,
   useCategories,
+  useTransactions,
   useUpdateTransaction,
   useDeleteTransaction,
   useResolveTransfer,
 } from "@/hooks/useSupabaseData";
 import { CategoryGrid } from "@/components/transactions/CategoryGrid";
-import { useUpsertRecurringRule } from "@/hooks/useRecurring";
+import { useUpsertRecurringRule, useRecurringRules } from "@/hooks/useRecurring";
+import { useMonthPlan, useLinkTransaction } from "@/hooks/useMonthPlan";
+import { suggestPlanItem } from "@/lib/monthPlan";
+import { monthKey } from "@/lib/aggregations";
+import { RecurringManager } from "@/components/settings/RecurringManager";
 import { isInterestPaid } from "@/lib/interestPaid";
 import { todayISO } from "@/lib/dates";
+import { fmt } from "@/lib/format";
 import { BUCKETS } from "@/lib/buckets";
 import type { Transaction, TransactionType, BucketType, RecurringFrequency } from "@/lib/types";
+
+const norm = (s: string) => s.toLowerCase().replace(/\s+/g, " ").trim();
 
 const FREQ_LABEL: Record<"monthly" | "biweekly" | "weekly", string> = {
   monthly: "Monthly",
@@ -41,10 +49,13 @@ const TYPE_LABEL: Record<TransactionType, string> = {
 export function TransactionEditor({ txn, onClose, inline }: Props) {
   const { data: accounts = [] } = useAccounts();
   const { data: categories = [] } = useCategories();
+  const { data: allTxns = [] } = useTransactions();
+  const { data: rules = [] } = useRecurringRules();
   const update = useUpdateTransaction();
   const del = useDeleteTransaction();
   const resolveTransfer = useResolveTransfer();
   const upsertRule = useUpsertRecurringRule();
+  const linkTxn = useLinkTransaction();
 
   const firstSplit = (txn.splits ?? [])[0];
 
@@ -59,9 +70,57 @@ export function TransactionEditor({ txn, onClose, inline }: Props) {
   const [notes, setNotes] = useState(txn.notes ?? "");
   const [makeRecurring, setMakeRecurring] = useState(false);
   const [recurFreq, setRecurFreq] = useState<RecurringFrequency>("monthly");
+  const [showRules, setShowRules] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const canRecur = type !== "refund"; // rules cover expense / income / transfer
+  /* ---- recurring status ---- */
+  // A row our generator created — it IS a rule occurrence; no checkbox.
+  const genRuleId = /^recurring:([^:]+):/.exec(txn.external_id ?? "")?.[1] ?? null;
+  const isGenerated = txn.source === "recurring" || !!genRuleId;
+  const genRule = genRuleId ? rules.find((r) => r.id === genRuleId) : undefined;
+
+  // An active rule already covering this merchant on this account → the box
+  // shows CHECKED; unchecking pauses the rule (reversible, keeps history).
+  const matchedRule = useMemo(() => {
+    if (isGenerated) return undefined;
+    const m = norm(txn.merchant || txn.description || "");
+    if (!m) return undefined;
+    return rules.find((r) => {
+      if (!r.active || r.account_id !== txn.account_id || r.type !== txn.type) return false;
+      const n = norm(r.name);
+      return !!n && (n === m || n.includes(m) || m.includes(n));
+    });
+  }, [rules, txn, isGenerated]);
+
+  const touchedRecur = useRef(false);
+  useEffect(() => {
+    if (!touchedRecur.current) setMakeRecurring(!!matchedRule);
+  }, [matchedRule]);
+
+  /* ---- planned-payment link ---- */
+  const txnMonth = monthKey(txn.date);
+  const { data: planData } = useMonthPlan(txnMonth);
+  const openItems = useMemo(() => {
+    const items = planData?.items ?? [];
+    const filledByOthers = new Set(
+      allTxns.filter((t) => t.plan_item_id && t.id !== txn.id).map((t) => t.plan_item_id as string),
+    );
+    return items.filter((i) => !i.excluded && !filledByOthers.has(i.id));
+  }, [planData, allTxns, txn.id]);
+  const suggested = useMemo(
+    () =>
+      txn.plan_item_id
+        ? null
+        : suggestPlanItem(txn, openItems, new Set(openItems.map((i) => i.id))),
+    [txn, openItems],
+  );
+  const [planItemId, setPlanItemId] = useState<string>(txn.plan_item_id ?? "");
+  const touchedPlan = useRef(false);
+  useEffect(() => {
+    if (!touchedPlan.current && !txn.plan_item_id && suggested) setPlanItemId(suggested.id);
+  }, [suggested, txn.plan_item_id]);
+
+  const canRecur = type !== "refund" && !isGenerated; // rules cover expense / income / transfer
 
   // Interest charges affect the account balance only — they carry no category
   // split and are excluded from the budget, so we don't prompt for a category.
@@ -110,27 +169,37 @@ export function TransactionEditor({ txn, onClose, inline }: Props) {
       if (type === "transfer" && transferAccountId) {
         await resolveTransfer.mutateAsync({ id: txn.id, transfer_account_id: transferAccountId });
       }
-      // Optionally spin up a recurring rule from this transaction. It generates
-      // FUTURE occurrences only (watermark = today), so this row isn't duplicated.
-      if (makeRecurring && canRecur) {
-        const d = new Date(`${date}T00:00:00Z`);
-        await upsertRule.mutateAsync({
-          name: merchant.trim() || "Recurring",
-          account_id: accountId,
-          type: type as "expense" | "income" | "transfer",
-          amount: signed,
-          transfer_account_id: type === "transfer" ? transferAccountId || null : null,
-          category_id: type === "expense" ? categoryId || null : null,
-          bucket: type === "expense" ? bucket : null,
-          frequency: recurFreq,
-          day_of_month: recurFreq === "monthly" ? d.getUTCDate() : null,
-          weekday: recurFreq === "weekly" || recurFreq === "biweekly" ? d.getUTCDay() : null,
-          interval: 1,
-          start_date: date,
-          last_generated: todayISO(),
-          auto_review: true,
-          active: true,
-        });
+      if (canRecur) {
+        if (matchedRule && !makeRecurring) {
+          // Unchecked an already-covered merchant → pause the rule (reversible).
+          await upsertRule.mutateAsync({ ...matchedRule, active: false });
+        } else if (!matchedRule && makeRecurring) {
+          // Spin up a recurring rule from this transaction. It generates FUTURE
+          // occurrences only (watermark = today), so this row isn't duplicated.
+          const d = new Date(`${date}T00:00:00Z`);
+          await upsertRule.mutateAsync({
+            name: merchant.trim() || "Recurring",
+            account_id: accountId,
+            type: type as "expense" | "income" | "transfer",
+            amount: signed,
+            transfer_account_id: type === "transfer" ? transferAccountId || null : null,
+            category_id: type === "expense" ? categoryId || null : null,
+            bucket: type === "expense" ? bucket : null,
+            frequency: recurFreq,
+            day_of_month: recurFreq === "monthly" ? d.getUTCDate() : null,
+            weekday: recurFreq === "weekly" || recurFreq === "biweekly" ? d.getUTCDay() : null,
+            interval: 1,
+            start_date: date,
+            last_generated: todayISO(),
+            auto_review: true,
+            active: true,
+          });
+        }
+        // matched + still checked → already covered, nothing to create.
+      }
+      // Planned-payment link changed → write it (empty selection unlinks).
+      if ((planItemId || null) !== (txn.plan_item_id ?? null)) {
+        await linkTxn.mutateAsync({ txnId: txn.id, planItemId: planItemId || null });
       }
       onClose();
     } catch (e) {
@@ -275,7 +344,28 @@ export function TransactionEditor({ txn, onClose, inline }: Props) {
           placeholder="Optional"
         />
 
-        {/* Make recurring — creates a rule from this transaction */}
+        {/* Recurring status — generated rows show where they came from */}
+        {isGenerated && (
+          <div
+            className="rounded-[10px] p-3 flex items-center justify-between gap-3"
+            style={{ background: "var(--color-elevated)" }}
+          >
+            <div className="min-w-0">
+              <p className="text-sm flex items-center gap-1.5" style={{ color: "var(--color-text)" }}>
+                <span className="material-symbols-outlined" style={{ fontSize: 16, color: "var(--color-primary)" }}>repeat</span>
+                Recurring
+              </p>
+              <p className="text-xs mt-0.5" style={{ color: "var(--color-faint)" }}>
+                Generated by {genRule ? `“${genRule.name}”` : "a recurring rule"}
+              </p>
+            </div>
+            <Button size="sm" variant="secondary" onClick={() => setShowRules(true)}>
+              Manage
+            </Button>
+          </div>
+        )}
+
+        {/* Make recurring — reflects rule state; unchecking pauses the rule */}
         {canRecur && (
           <div className="rounded-[10px] p-3 space-y-2.5" style={{ background: "var(--color-elevated)" }}>
             <label className="flex items-center justify-between cursor-pointer">
@@ -285,11 +375,25 @@ export function TransactionEditor({ txn, onClose, inline }: Props) {
               <input
                 type="checkbox"
                 checked={makeRecurring}
-                onChange={(e) => setMakeRecurring(e.target.checked)}
+                onChange={(e) => {
+                  touchedRecur.current = true;
+                  setMakeRecurring(e.target.checked);
+                }}
                 style={{ accentColor: "var(--color-primary)" }}
               />
             </label>
-            {makeRecurring && (
+            {matchedRule ? (
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-xs" style={{ color: "var(--color-faint)" }}>
+                  {makeRecurring
+                    ? `Covered by “${matchedRule.name}” — uncheck to pause that rule.`
+                    : `Saving will pause “${matchedRule.name}” (no future occurrences until resumed).`}
+                </p>
+                <Button size="sm" variant="secondary" onClick={() => setShowRules(true)}>
+                  Manage
+                </Button>
+              </div>
+            ) : makeRecurring ? (
               <>
                 <div className="flex flex-wrap gap-2">
                   {(["monthly", "biweekly", "weekly"] as const).map((fr) => (
@@ -303,7 +407,49 @@ export function TransactionEditor({ txn, onClose, inline }: Props) {
                   post automatically — this one stays as it is.
                 </p>
               </>
-            )}
+            ) : null}
+          </div>
+        )}
+
+        {/* Planned payment link — mirrors the review flow */}
+        {type !== "refund" && (openItems.length > 0 || txn.plan_item_id) && (
+          <div
+            className="rounded-[10px] p-3 space-y-2.5"
+            style={{
+              background: "var(--color-elevated)",
+              border: planItemId ? "1px solid var(--color-primary)" : "1px solid transparent",
+            }}
+          >
+            <p className="text-sm" style={{ color: "var(--color-text)" }}>
+              {suggested && planItemId === suggested.id
+                ? <>Matched to planned: <span className="font-semibold">{suggested.name}</span></>
+                : "Fulfills a planned payment?"}
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <Chip
+                active={planItemId === ""}
+                onClick={() => {
+                  touchedPlan.current = true;
+                  setPlanItemId("");
+                }}
+              >
+                None
+              </Chip>
+              {openItems
+                .filter((i) => (txn.amount > 0) === (i.kind === "income"))
+                .map((i) => (
+                  <Chip
+                    key={i.id}
+                    active={planItemId === i.id}
+                    onClick={() => {
+                      touchedPlan.current = true;
+                      setPlanItemId(i.id);
+                    }}
+                  >
+                    {i.name} · {fmt(i.amount)}
+                  </Chip>
+                ))}
+            </div>
           </div>
         )}
 
@@ -324,10 +470,17 @@ export function TransactionEditor({ txn, onClose, inline }: Props) {
       </div>
   );
 
-  if (inline) return body;
+  if (inline)
+    return (
+      <>
+        {body}
+        {showRules && <RecurringManager onClose={() => setShowRules(false)} />}
+      </>
+    );
   return (
     <Sheet title="Edit transaction" onClose={onClose}>
       {body}
+      {showRules && <RecurringManager onClose={() => setShowRules(false)} />}
     </Sheet>
   );
 }
