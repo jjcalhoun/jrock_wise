@@ -35,6 +35,9 @@ export type RecurringRuleInput = Partial<RecurringRule> & {
   amount: number;
   frequency: RecurringRule["frequency"];
   start_date: string;
+  /** The transaction this rule was created from ("repeat this transaction"):
+   *  it gets linked to its month-plan occurrence so it counts as paid. */
+  _sourceTxn?: { id: string; date: string };
 };
 
 export function useUpsertRecurringRule() {
@@ -42,18 +45,19 @@ export function useUpsertRecurringRule() {
   return useMutation({
     mutationFn: async (input: RecurringRuleInput & { id?: string }) => {
       const user_id = await currentUserId();
-      const isNew = !input.id;
+      const { _sourceTxn, ...rule } = input;
+      const isNew = !rule.id;
       const { data: row, error } = await supabase
         .from("recurring_rules")
-        .upsert({ ...input, user_id })
+        .upsert({ ...rule, user_id })
         .select("id")
         .single();
       if (error) throw error;
-      // A rule created mid-month appends its remaining occurrences to the
-      // current month's plan (the plan is a snapshot — next months draft it
+      // A rule created mid-month appends this month's occurrences to the
+      // current plan (the plan is a snapshot — next months draft it
       // automatically, but this month already exists).
-      if (isNew && row && input.active !== false) {
-        await appendRuleToCurrentPlan(user_id, { ...input, id: row.id as string });
+      if (isNew && row && rule.active !== false) {
+        await appendRuleToCurrentPlan(user_id, { ...rule, id: row.id as string }, _sourceTxn);
       }
       // Pausing a rule releases its not-yet-paid upcoming commitments so they
       // stop dragging free-to-spend down.
@@ -64,11 +68,16 @@ export function useUpsertRecurringRule() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["recurring_rules"] });
       qc.invalidateQueries({ queryKey: ["month_plan"] });
+      qc.invalidateQueries({ queryKey: ["transactions"] });
     },
   });
 }
 
-async function appendRuleToCurrentPlan(user_id: string, rule: RecurringRuleInput & { id: string }) {
+async function appendRuleToCurrentPlan(
+  user_id: string,
+  rule: Omit<RecurringRuleInput, "_sourceTxn"> & { id: string },
+  sourceTxn?: { id: string; date: string },
+) {
   const { occurrences } = await import("@/lib/recurring");
   const { ruleKind, isVariableRule } = await import("@/lib/monthPlan");
   const { todayISO, endOfMonthISO } = await import("@/lib/dates");
@@ -90,8 +99,11 @@ async function appendRuleToCurrentPlan(user_id: string, rule: RecurringRuleInput
   );
   if (!kind) return; // cash-neutral shuffle
 
-  // Only occurrences still ahead of us — the transaction that spawned the rule
-  // (if any) already happened and stays part of actual spending.
+  // The WHOLE month's occurrences — including ones already past, so a rule
+  // created after its due date (e.g. a mortgage due the 1st, rule made the
+  // 12th) still gets a line the real payment can link to. The spawning
+  // transaction is linked below; other past occurrences sit as expected until
+  // a payment is linked or the user unchecks them.
   const dates = occurrences(
     {
       frequency: rule.frequency,
@@ -102,9 +114,9 @@ async function appendRuleToCurrentPlan(user_id: string, rule: RecurringRuleInput
       start_date: rule.start_date,
       end_date: rule.end_date ?? null,
     },
-    today,
+    `${month}-01`,
     endOfMonthISO(),
-  ).filter((d) => d > today);
+  );
   if (dates.length === 0) return;
 
   // Variable bills (history varies >5%) always confirm in review.
@@ -120,18 +132,37 @@ async function appendRuleToCurrentPlan(user_id: string, rule: RecurringRuleInput
   }
 
   const mag = Math.abs(rule.amount);
-  await supabase.from("month_plan_items").insert(
-    dates.map((due_date) => ({
-      user_id,
-      plan_id: plan.id,
-      rule_id: rule.id,
-      name: rule.name,
-      kind,
-      amount: kind === "income" ? mag : -mag,
-      due_date,
-      variable,
-    })),
-  );
+  const { data: inserted } = await supabase
+    .from("month_plan_items")
+    .insert(
+      dates.map((due_date) => ({
+        user_id,
+        plan_id: plan.id,
+        rule_id: rule.id,
+        name: rule.name,
+        kind,
+        amount: kind === "income" ? mag : -mag,
+        due_date,
+        variable,
+      })),
+    )
+    .select("id, due_date");
+
+  // Link the spawning transaction to its nearest occurrence, so that one
+  // counts as paid instead of double-counting (planned + actual). Only when
+  // the transaction isn't already linked to something else.
+  if (sourceTxn && inserted && inserted.length > 0) {
+    const target = [...inserted].sort(
+      (a, b) =>
+        Math.abs(Date.parse(a.due_date as string) - Date.parse(sourceTxn.date + "T00:00:00Z")) -
+        Math.abs(Date.parse(b.due_date as string) - Date.parse(sourceTxn.date + "T00:00:00Z")),
+    )[0];
+    await supabase
+      .from("transactions")
+      .update({ plan_item_id: target.id })
+      .eq("id", sourceTxn.id)
+      .is("plan_item_id", null);
+  }
 }
 
 export function useDeleteRecurringRule() {
@@ -147,6 +178,7 @@ export function useDeleteRecurringRule() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["recurring_rules"] });
       qc.invalidateQueries({ queryKey: ["month_plan"] });
+      qc.invalidateQueries({ queryKey: ["transactions"] });
     },
   });
 }

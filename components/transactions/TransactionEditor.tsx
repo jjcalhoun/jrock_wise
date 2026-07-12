@@ -199,6 +199,9 @@ export function TransactionEditor({ txn, onClose, inline }: Props) {
             last_generated: todayISO(),
             auto_review: true,
             active: true,
+            // Link this transaction to the occurrence it represents (unless a
+            // planned payment was picked explicitly below).
+            ...(planItemIds.length === 0 ? { _sourceTxn: { id: txn.id, date } } : {}),
           });
         }
         // matched + still checked → already covered, nothing to create.
