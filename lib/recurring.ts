@@ -102,12 +102,22 @@ export async function generateRecurring(
   );
 
   for (const rule of (rules ?? []) as RecurringRule[]) {
+    // SYNCED accounts get NO generated rows at all: the real transactions
+    // arrive from the bank feed, and the month plan already carries the
+    // expectation (the feed row links to its plan item in review). Generating
+    // here would duplicate every paycheck/charge. Just advance the watermark.
+    if (synced.has(rule.account_id)) {
+      await supabase
+        .from("recurring_rules")
+        .update({ last_generated: today })
+        .eq("id", rule.id)
+        .eq("user_id", userId);
+      continue;
+    }
     // On a MANUAL account, pre-post the rest of this month so the items are
     // committed to the budget from the 1st (the balance view ignores dates in
-    // the future, so they don't move balances until their day arrives). On a
-    // SYNCED account, only post through today — the real charges arrive from the
-    // bank feed, and pre-posting would duplicate them.
-    const to = synced.has(rule.account_id) ? today : monthEnd;
+    // the future, so they don't move balances until their day arrives).
+    const to = monthEnd;
     const from = rule.last_generated ? addDay(rule.last_generated) : rule.start_date;
     const dates = occurrences(rule, from, to);
     let failed = false;
