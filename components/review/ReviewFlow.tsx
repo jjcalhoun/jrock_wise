@@ -8,7 +8,7 @@ import {
   useReviewTransaction,
   useResolveTransfer,
 } from "@/hooks/useSupabaseData";
-import { useUpsertRecurringRule } from "@/hooks/useRecurring";
+import { useUpsertRecurringRule, useRecurringRules } from "@/hooks/useRecurring";
 import { useMonthPlan, useLinkTransaction } from "@/hooks/useMonthPlan";
 import { suggestPlanItem } from "@/lib/monthPlan";
 import { monthKey } from "@/lib/aggregations";
@@ -33,6 +33,7 @@ export function ReviewFlow({ onClose }: { onClose: () => void }) {
   const review = useReviewTransaction();
   const resolveTransfer = useResolveTransfer();
   const upsertRule = useUpsertRecurringRule();
+  const { data: rules = [] } = useRecurringRules();
   const linkTxn = useLinkTransaction();
 
   // snapshot the queue once so it stays stable as we review through it
@@ -43,6 +44,19 @@ export function ReviewFlow({ onClose }: { onClose: () => void }) {
   }, [unreviewed, queue.length]);
 
   const [index, setIndex] = useState(0);
+
+  // The queue is a snapshot; entries can become reviewed behind our back —
+  // e.g. resolving one leg of a transfer auto-reviews the counterpart. Skip
+  // those instead of asking the user to review them again.
+  const liveById = useMemo(
+    () => Object.fromEntries(transactions.map((t) => [t.id, t])),
+    [transactions],
+  );
+  useEffect(() => {
+    let i = index;
+    while (i < queue.length && (liveById[queue[i].id]?.reviewed ?? false)) i++;
+    if (i !== index) setIndex(i);
+  }, [index, queue, liveById]);
 
   const txn = queue[index];
   const inflow = txn ? txn.amount > 0 : false;
@@ -116,6 +130,19 @@ export function ReviewFlow({ onClose }: { onClose: () => void }) {
   const togglePlanItem = (id: string) =>
     setPlanItemIds((ids) => (ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id]));
 
+  // An active rule already covering this merchant — show that instead of the
+  // "repeat" checkbox, so duplicate rules can't be created from review.
+  const coveredBy = useMemo(() => {
+    if (!txn) return undefined;
+    const normed = (txn.merchant || txn.description || "").toLowerCase().replace(/\s+/g, " ").trim();
+    if (!normed) return undefined;
+    return rules.find((r) => {
+      if (!r.active || r.account_id !== txn.account_id) return false;
+      const n = r.name.toLowerCase().replace(/\s+/g, " ").trim();
+      return !!n && (n === normed || n.includes(normed) || normed.includes(n));
+    });
+  }, [txn, rules]);
+
   function pickTransferAccount(id: string) {
     setTransferAccountId(id);
   }
@@ -163,7 +190,7 @@ export function ReviewFlow({ onClose }: { onClose: () => void }) {
       });
     }
     // Optionally create a recurring rule from this transaction (future occurrences only).
-    if (makeRecurring && type !== "refund") {
+    if (makeRecurring && type !== "refund" && !coveredBy) {
       const d = new Date(`${txn.date}T00:00:00Z`);
       await upsertRule.mutateAsync({
         name: txn.merchant || txn.description || "Recurring",
@@ -365,8 +392,19 @@ export function ReviewFlow({ onClose }: { onClose: () => void }) {
               </div>
             )}
 
-            {/* Make recurring */}
-            {type !== "refund" && (
+            {/* Make recurring — hidden when a rule already covers this merchant */}
+            {type !== "refund" && coveredBy && (
+              <div
+                className="rounded-[10px] p-3 flex items-center gap-2"
+                style={{ background: "var(--color-surface)" }}
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: 16, color: "var(--color-primary)" }}>repeat</span>
+                <p className="text-sm" style={{ color: "var(--color-text)" }}>
+                  Recurring · covered by <span className="font-semibold">“{coveredBy.name}”</span>
+                </p>
+              </div>
+            )}
+            {type !== "refund" && !coveredBy && (
               <div className="rounded-[10px] p-3 space-y-2.5" style={{ background: "var(--color-surface)" }}>
                 <label className="flex items-center justify-between cursor-pointer">
                   <span className="text-sm" style={{ color: "var(--color-text)" }}>Repeat this transaction</span>
