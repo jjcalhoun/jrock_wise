@@ -181,6 +181,9 @@ export function ReviewFlow({ onClose }: { onClose: () => void }) {
         last_generated: todayISO(),
         auto_review: true,
         active: true,
+        // Link this transaction to the occurrence it represents (unless the
+        // user already picked planned payments above).
+        ...(planItemIds.length === 0 ? { _sourceTxn: { id: txn.id, date: txn.date } } : {}),
       });
     }
     setIndex((i) => i + 1);
