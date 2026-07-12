@@ -54,7 +54,7 @@ export function ReviewFlow({ onClose }: { onClose: () => void }) {
   const [transferAccountId, setTransferAccountId] = useState("");
   const [makeRecurring, setMakeRecurring] = useState(false);
   const [recurFreq, setRecurFreq] = useState<RecurringFrequency>("monthly");
-  const [planItemId, setPlanItemId] = useState("");
+  const [planItemIds, setPlanItemIds] = useState<string[]>([]);
 
   // Month plan for the transaction's month — open (unfilled) items can be
   // matched here so the ledger marks the commitment paid.
@@ -109,9 +109,12 @@ export function ReviewFlow({ onClose }: { onClose: () => void }) {
 
   // Preselect the suggested planned payment (user can deselect).
   useEffect(() => {
-    setPlanItemId(suggested?.id ?? "");
+    setPlanItemIds(suggested ? [suggested.id] : []);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [txn, suggested?.id]);
+
+  const togglePlanItem = (id: string) =>
+    setPlanItemIds((ids) => (ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id]));
 
   function pickTransferAccount(id: string) {
     setTransferAccountId(id);
@@ -150,9 +153,14 @@ export function ReviewFlow({ onClose }: { onClose: () => void }) {
           : undefined,
       });
     }
-    // Link to the planned payment it fulfills (ledger marks it paid).
-    if (planItemId) {
-      await linkTxn.mutateAsync({ txnId: txn.id, planItemId });
+    // Link to the planned payment(s) it fulfills (ledger marks them paid;
+    // extra selections are retired as covered by this payment).
+    if (planItemIds.length > 0) {
+      await linkTxn.mutateAsync({
+        txnId: txn.id,
+        planItemId: planItemIds[0],
+        alsoCovered: planItemIds.slice(1),
+      });
     }
     // Optionally create a recurring rule from this transaction (future occurrences only).
     if (makeRecurring && type !== "refund") {
@@ -325,11 +333,11 @@ export function ReviewFlow({ onClose }: { onClose: () => void }) {
                 className="rounded-[10px] p-3 space-y-2.5"
                 style={{
                   background: "var(--color-surface)",
-                  border: planItemId ? "1px solid var(--color-primary)" : "1px solid transparent",
+                  border: planItemIds.length > 0 ? "1px solid var(--color-primary)" : "1px solid transparent",
                 }}
               >
                 <p className="text-sm" style={{ color: "var(--color-text)" }}>
-                  {suggested && planItemId === suggested.id ? (
+                  {suggested && planItemIds.length === 1 && planItemIds[0] === suggested.id ? (
                     <>Matched to planned: <span className="font-semibold">{suggested.name}</span>{" "}
                       <span style={{ color: "var(--color-faint)" }}>({fmt(suggested.amount)} planned)</span></>
                   ) : (
@@ -337,17 +345,20 @@ export function ReviewFlow({ onClose }: { onClose: () => void }) {
                   )}
                 </p>
                 <div className="flex flex-wrap gap-2">
-                  <Chip active={planItemId === ""} onClick={() => setPlanItemId("")}>
+                  <Chip active={planItemIds.length === 0} onClick={() => setPlanItemIds([])}>
                     None
                   </Chip>
                   {openItems
                     .filter((i) => (txn.amount > 0) === (i.kind === "income"))
                     .map((i) => (
-                      <Chip key={i.id} active={planItemId === i.id} onClick={() => setPlanItemId(i.id)}>
-                        {i.name} · {fmt(i.amount)}
+                      <Chip key={i.id} active={planItemIds.includes(i.id)} onClick={() => togglePlanItem(i.id)}>
+                        {i.name}{i.due_date ? ` · ${shortDate(i.due_date)}` : ""} · {fmt(i.amount)}
                       </Chip>
                     ))}
                 </div>
+                <p className="text-xs" style={{ color: "var(--color-faint)" }}>
+                  Pick more than one if this payment covers several occurrences.
+                </p>
               </div>
             )}
 

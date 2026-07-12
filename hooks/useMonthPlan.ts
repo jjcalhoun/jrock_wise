@@ -205,16 +205,35 @@ export function useDeletePlanItem(month: string) {
   });
 }
 
-/** Link (or unlink) a transaction to the plan item it fulfills. */
+/** Link (or unlink) a transaction to the plan item it fulfills. When one
+ *  payment covers several occurrences (e.g. three weeks of child support in
+ *  one check), the extras go in `alsoCovered`: the linked item carries the
+ *  transaction's actual amount and the covered ones are retired (excluded),
+ *  so nothing double-counts and they leave the open list. */
 export function useLinkTransaction() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async ({ txnId, planItemId }: { txnId: string; planItemId: string | null }) => {
+    mutationFn: async ({
+      txnId,
+      planItemId,
+      alsoCovered = [],
+    }: {
+      txnId: string;
+      planItemId: string | null;
+      alsoCovered?: string[];
+    }) => {
       const { error } = await supabase
         .from("transactions")
         .update({ plan_item_id: planItemId })
         .eq("id", txnId);
       if (error) throw error;
+      if (alsoCovered.length > 0) {
+        const { error: cErr } = await supabase
+          .from("month_plan_items")
+          .update({ excluded: true })
+          .in("id", alsoCovered);
+        if (cErr) throw cErr;
+      }
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["transactions"] });
