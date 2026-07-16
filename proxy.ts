@@ -13,6 +13,9 @@ import { NextResponse, type NextRequest } from "next/server";
 export async function proxy(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request });
 
+  // Demo deployments have no auth at all — let everything through.
+  if (process.env.NEXT_PUBLIC_DEMO === "1") return supabaseResponse;
+
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
 
