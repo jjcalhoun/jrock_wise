@@ -5,22 +5,33 @@ import { SideNav } from "@/components/nav/SideNav";
 import { RecurringRunner } from "@/components/recurring/RecurringRunner";
 import { MonthPlanPrompt } from "@/components/plan/MonthPlanPrompt";
 
+const demo = process.env.NEXT_PUBLIC_DEMO === "1";
+
 export default async function AppLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) {
-    redirect("/login");
+  if (!demo) {
+    const supabase = await createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) {
+      redirect("/login");
+    }
   }
 
   return (
     <div className="min-h-screen lg:flex" style={{ background: "var(--color-canvas)" }}>
+      {demo && (
+        <div
+          className="fixed top-0 inset-x-0 z-[60] text-center text-[11px] font-semibold py-1 text-white"
+          style={{ background: "var(--color-primary)" }}
+        >
+          Demo — fictional data, resets daily
+        </div>
+      )}
       <RecurringRunner />
       <MonthPlanPrompt />
       {/* Desktop: sidebar; mobile: bottom nav (below) */}

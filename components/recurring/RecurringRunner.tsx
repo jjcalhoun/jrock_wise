@@ -3,6 +3,7 @@
 import { useEffect, useRef } from "react";
 import { useGenerateRecurring } from "@/hooks/useRecurring";
 import { useSimplefinConnections, useSyncSimplefin } from "@/hooks/useSimplefin";
+import { isDemo } from "@/lib/demo/isDemo";
 
 /* Background housekeeping, once per app load — renders nothing.
    - Fires the recurring generator so due transactions appear without waiting
@@ -20,13 +21,13 @@ export function RecurringRunner() {
   const ranSync = useRef(false);
 
   useEffect(() => {
-    if (ranGenerate.current) return;
+    if (isDemo || ranGenerate.current) return; // demo: the seed IS the generator
     ranGenerate.current = true;
     generate.mutate();
   }, [generate]);
 
   useEffect(() => {
-    if (ranSync.current || !connections || connections.length === 0) return;
+    if (isDemo || ranSync.current || !connections || connections.length === 0) return;
     const newest = connections.reduce<string | null>(
       (acc, c) => (c.last_synced_at && (!acc || c.last_synced_at > acc) ? c.last_synced_at : acc),
       null,

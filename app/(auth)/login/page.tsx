@@ -1,10 +1,17 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import { isDemo } from "@/lib/demo/isDemo";
 import { AppLogo } from "@/components/ui/AppLogo";
 
 export default function LoginPage() {
+  const router = useRouter();
+  // Demo mode has no auth — go straight to the dashboard.
+  useEffect(() => {
+    if (isDemo) router.replace("/");
+  }, [router]);
   const [email, setEmail] = useState("");
   const [sent, setSent] = useState(false);
   const [error, setError] = useState<string | null>(null);
