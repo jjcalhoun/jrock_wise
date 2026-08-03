@@ -64,7 +64,8 @@ export interface Transaction {
   external_id?: string | null;
   import_batch_id?: string | null;
   reviewed: boolean;
-  plan_item_id?: string | null; // fulfills this month-plan item (explicit link)
+  plan_item_id?: string | null; // legacy link to a month-plan item (dropped in phase 4)
+  commitment_id?: string | null; // fulfills this commitment — the only link the ledger reads
   created_at: string;
   updated_at: string;
   // joined

@@ -9,8 +9,9 @@ import {
   useResolveTransfer,
 } from "@/hooks/useSupabaseData";
 import { useUpsertRecurringRule, useRecurringRules } from "@/hooks/useRecurring";
-import { useMonthPlan, useLinkTransaction } from "@/hooks/useMonthPlan";
-import { suggestPlanItem } from "@/lib/monthPlan";
+import { useCommitmentWindow, useLinkCommitment } from "@/hooks/useCommitments";
+import { rankCommitments, suggestCommitment } from "@/lib/commitments/match";
+import { periodWindow } from "@/lib/commitments/period";
 import { monthKey } from "@/lib/aggregations";
 import { CategoryGrid } from "@/components/transactions/CategoryGrid";
 import { Button } from "@/components/ui/Button";
@@ -34,7 +35,7 @@ export function ReviewFlow({ onClose }: { onClose: () => void }) {
   const resolveTransfer = useResolveTransfer();
   const upsertRule = useUpsertRecurringRule();
   const { data: rules = [] } = useRecurringRules();
-  const linkTxn = useLinkTransaction();
+  const linkTxn = useLinkCommitment();
 
   // snapshot the queue once so it stays stable as we review through it
   const [queue, setQueue] = useState<Transaction[]>([]);
@@ -68,22 +69,20 @@ export function ReviewFlow({ onClose }: { onClose: () => void }) {
   const [transferAccountId, setTransferAccountId] = useState("");
   const [makeRecurring, setMakeRecurring] = useState(false);
   const [recurFreq, setRecurFreq] = useState<RecurringFrequency>("monthly");
-  const [planItemIds, setPlanItemIds] = useState<string[]>([]);
+  const [commitmentId, setCommitmentId] = useState<string | null>(null);
 
-  // Month plan for the transaction's month — open (unfilled) items can be
-  // matched here so the ledger marks the commitment paid.
+  // Candidates come from a WINDOW of periods, not the transaction's calendar
+  // month — a bill due the 31st that clears on the 1st must still find the
+  // month that expected it.
   const txnMonth = txn ? monthKey(txn.date) : "";
-  const { data: planData } = useMonthPlan(txnMonth);
-  const openItems = useMemo(() => {
-    const items = planData?.items ?? [];
-    const filled = new Set(
-      transactions.filter((t) => t.plan_item_id && t.id !== txn?.id).map((t) => t.plan_item_id as string),
-    );
-    return items.filter((i) => !i.excluded && !filled.has(i.id));
-  }, [planData, transactions, txn]);
+  const { data: windowItems = [] } = useCommitmentWindow(txnMonth ? periodWindow(txnMonth) : []);
+  const candidates = useMemo(
+    () => (txn ? rankCommitments(txn, windowItems, { linked: transactions }) : []),
+    [txn, windowItems, transactions],
+  );
   const suggested = useMemo(
-    () => (txn ? suggestPlanItem(txn, openItems, new Set(openItems.map((i) => i.id))) : null),
-    [txn, openItems],
+    () => (txn ? suggestCommitment(txn, windowItems, { linked: transactions }) : null),
+    [txn, windowItems, transactions],
   );
 
   // Payee memory: if we've previously assigned this merchant as a transfer,
@@ -121,14 +120,12 @@ export function ReviewFlow({ onClose }: { onClose: () => void }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [txn]);
 
-  // Preselect the suggested planned payment (user can deselect).
+  // Pre-select the suggestion — but it is only ever a suggestion. Nothing
+  // links itself; saving is what commits it.
   useEffect(() => {
-    setPlanItemIds(suggested ? [suggested.id] : []);
+    setCommitmentId(suggested?.id ?? null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [txn, suggested?.id]);
-
-  const togglePlanItem = (id: string) =>
-    setPlanItemIds((ids) => (ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id]));
 
   // An active rule already covering this merchant — show that instead of the
   // "repeat" checkbox, so duplicate rules can't be created from review.
@@ -180,14 +177,9 @@ export function ReviewFlow({ onClose }: { onClose: () => void }) {
           : undefined,
       });
     }
-    // Link to the planned payment(s) it fulfills (ledger marks them paid;
-    // extra selections are retired as covered by this payment).
-    if (planItemIds.length > 0) {
-      await linkTxn.mutateAsync({
-        txnId: txn.id,
-        planItemId: planItemIds[0],
-        alsoCovered: planItemIds.slice(1),
-      });
+    // Link to the commitment it fulfills (the ledger marks it paid).
+    if (commitmentId !== (txn.commitment_id ?? null)) {
+      await linkTxn.mutateAsync({ txnId: txn.id, commitmentId });
     }
     // Optionally create a recurring rule from this transaction (future occurrences only).
     if (makeRecurring && type !== "refund" && !coveredBy) {
@@ -210,7 +202,7 @@ export function ReviewFlow({ onClose }: { onClose: () => void }) {
         active: true,
         // Link this transaction to the occurrence it represents (unless the
         // user already picked planned payments above).
-        ...(planItemIds.length === 0 ? { _sourceTxn: { id: txn.id, date: txn.date } } : {}),
+        ...(commitmentId === null ? { _sourceTxn: { id: txn.id, date: txn.date } } : {}),
       });
     }
     setIndex((i) => i + 1);
@@ -357,37 +349,45 @@ export function ReviewFlow({ onClose }: { onClose: () => void }) {
               </p>
             )}
 
-            {/* Planned payment match */}
-            {type !== "refund" && openItems.length > 0 && (
+            {/* Planned payment match — every candidate is shown, scored.
+                Nothing links itself; this is the confirmation step. */}
+            {candidates.length > 0 && (
               <div
                 className="rounded-[10px] p-3 space-y-2.5"
                 style={{
                   background: "var(--color-surface)",
-                  border: planItemIds.length > 0 ? "1px solid var(--color-primary)" : "1px solid transparent",
+                  border: commitmentId ? "1px solid var(--color-primary)" : "1px solid transparent",
                 }}
               >
                 <p className="text-sm" style={{ color: "var(--color-text)" }}>
-                  {suggested && planItemIds.length === 1 && planItemIds[0] === suggested.id ? (
-                    <>Matched to planned: <span className="font-semibold">{suggested.name}</span>{" "}
+                  {suggested && commitmentId === suggested.id ? (
+                    <>Looks like: <span className="font-semibold">{suggested.name}</span>{" "}
                       <span style={{ color: "var(--color-faint)" }}>({fmt(suggested.amount)} planned)</span></>
                   ) : (
                     "Fulfills a planned payment?"
                   )}
                 </p>
                 <div className="flex flex-wrap gap-2">
-                  <Chip active={planItemIds.length === 0} onClick={() => setPlanItemIds([])}>
+                  <Chip active={commitmentId === null} onClick={() => setCommitmentId(null)}>
                     None
                   </Chip>
-                  {openItems
-                    .filter((i) => (txn.amount > 0) === (i.kind === "income"))
-                    .map((i) => (
-                      <Chip key={i.id} active={planItemIds.includes(i.id)} onClick={() => togglePlanItem(i.id)}>
-                        {i.name}{i.due_date ? ` · ${shortDate(i.due_date)}` : ""} · {fmt(i.amount)}
-                      </Chip>
-                    ))}
+                  {candidates.map(({ commitment: i, claimedBy }) => (
+                    <Chip
+                      key={i.id}
+                      active={commitmentId === i.id}
+                      onClick={() => setCommitmentId(commitmentId === i.id ? null : i.id)}
+                      dim={!!claimedBy && commitmentId !== i.id}
+                    >
+                      {i.name}
+                      {i.due_hint ? ` \u00b7 ${shortDate(i.due_hint)}` : ""} \u00b7 {fmt(i.amount)}
+                      {claimedBy
+                        ? ` \u00b7 claimed by ${claimedBy.merchant || claimedBy.description || "another payment"}`
+                        : ""}
+                    </Chip>
+                  ))}
                 </div>
                 <p className="text-xs" style={{ color: "var(--color-faint)" }}>
-                  Pick more than one if this payment covers several occurrences.
+                  Dimmed lines are already matched to something else \u2014 tap one to move it here.
                 </p>
               </div>
             )}

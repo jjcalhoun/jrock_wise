@@ -15,8 +15,9 @@ import {
 } from "@/hooks/useSupabaseData";
 import { CategoryGrid } from "@/components/transactions/CategoryGrid";
 import { useUpsertRecurringRule, useRecurringRules } from "@/hooks/useRecurring";
-import { useMonthPlan, useLinkTransaction } from "@/hooks/useMonthPlan";
-import { suggestPlanItem } from "@/lib/monthPlan";
+import { useCommitmentWindow, useLinkCommitment } from "@/hooks/useCommitments";
+import { rankCommitments, suggestCommitment } from "@/lib/commitments/match";
+import { periodWindow } from "@/lib/commitments/period";
 import { monthKey } from "@/lib/aggregations";
 import { RecurringManager } from "@/components/settings/RecurringManager";
 import { isInterestPaid } from "@/lib/interestPaid";
@@ -55,7 +56,7 @@ export function TransactionEditor({ txn, onClose, inline }: Props) {
   const del = useDeleteTransaction();
   const resolveTransfer = useResolveTransfer();
   const upsertRule = useUpsertRecurringRule();
-  const linkTxn = useLinkTransaction();
+  const linkTxn = useLinkCommitment();
 
   const firstSplit = (txn.splits ?? [])[0];
 
@@ -99,31 +100,25 @@ export function TransactionEditor({ txn, onClose, inline }: Props) {
 
   /* ---- planned-payment link ---- */
   const txnMonth = monthKey(txn.date);
-  const { data: planData } = useMonthPlan(txnMonth);
-  const openItems = useMemo(() => {
-    const items = planData?.items ?? [];
-    const filledByOthers = new Set(
-      allTxns.filter((t) => t.plan_item_id && t.id !== txn.id).map((t) => t.plan_item_id as string),
-    );
-    return items.filter((i) => !i.excluded && !filledByOthers.has(i.id));
-  }, [planData, allTxns, txn.id]);
+  // A window of periods, not just this transaction's month — the due date is a
+  // hint, so a payment may fulfill a neighbouring month's commitment.
+  const { data: windowItems = [] } = useCommitmentWindow(periodWindow(txnMonth));
+  const candidates = useMemo(
+    () => rankCommitments(txn, windowItems, { linked: allTxns }),
+    [txn, windowItems, allTxns],
+  );
   const suggested = useMemo(
-    () =>
-      txn.plan_item_id
-        ? null
-        : suggestPlanItem(txn, openItems, new Set(openItems.map((i) => i.id))),
-    [txn, openItems],
+    () => (txn.commitment_id ? null : suggestCommitment(txn, windowItems, { linked: allTxns })),
+    [txn, windowItems, allTxns],
   );
-  const [planItemIds, setPlanItemIds] = useState<string[]>(
-    txn.plan_item_id ? [txn.plan_item_id] : [],
-  );
+  const [commitmentId, setCommitmentId] = useState<string | null>(txn.commitment_id ?? null);
   const touchedPlan = useRef(false);
   useEffect(() => {
-    if (!touchedPlan.current && !txn.plan_item_id && suggested) setPlanItemIds([suggested.id]);
-  }, [suggested, txn.plan_item_id]);
-  const togglePlanItem = (id: string) => {
+    if (!touchedPlan.current && !txn.commitment_id && suggested) setCommitmentId(suggested.id);
+  }, [suggested, txn.commitment_id]);
+  const pickCommitment = (id: string) => {
     touchedPlan.current = true;
-    setPlanItemIds((ids) => (ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id]));
+    setCommitmentId((cur) => (cur === id ? null : id));
   };
 
   const canRecur = type !== "refund" && !isGenerated; // rules cover expense / income / transfer
@@ -201,20 +196,14 @@ export function TransactionEditor({ txn, onClose, inline }: Props) {
             active: true,
             // Link this transaction to the occurrence it represents (unless a
             // planned payment was picked explicitly below).
-            ...(planItemIds.length === 0 ? { _sourceTxn: { id: txn.id, date } } : {}),
+            ...(commitmentId === null ? { _sourceTxn: { id: txn.id, date } } : {}),
           });
         }
         // matched + still checked → already covered, nothing to create.
       }
-      // Planned-payment link changed → write it (empty selection unlinks;
-      // extra selections are retired as covered by this payment).
-      const first = planItemIds[0] ?? null;
-      if (first !== (txn.plan_item_id ?? null) || planItemIds.length > 1) {
-        await linkTxn.mutateAsync({
-          txnId: txn.id,
-          planItemId: first,
-          alsoCovered: planItemIds.slice(1),
-        });
+      // Planned-payment link changed → write it (None unlinks).
+      if (commitmentId !== (txn.commitment_id ?? null)) {
+        await linkTxn.mutateAsync({ txnId: txn.id, commitmentId });
       }
       onClose();
     } catch (e) {
@@ -426,40 +415,45 @@ export function TransactionEditor({ txn, onClose, inline }: Props) {
           </div>
         )}
 
-        {/* Planned payment link — mirrors the review flow */}
-        {type !== "refund" && (openItems.length > 0 || txn.plan_item_id) && (
+        {/* Planned payment link — mirrors the review flow. Every candidate is
+            shown, scored; claimed ones stay offered rather than disappearing. */}
+        {(candidates.length > 0 || txn.commitment_id) && (
           <div
             className="rounded-[10px] p-3 space-y-2.5"
             style={{
               background: "var(--color-elevated)",
-              border: planItemIds.length > 0 ? "1px solid var(--color-primary)" : "1px solid transparent",
+              border: commitmentId ? "1px solid var(--color-primary)" : "1px solid transparent",
             }}
           >
             <p className="text-sm" style={{ color: "var(--color-text)" }}>
-              {suggested && planItemIds.length === 1 && planItemIds[0] === suggested.id
-                ? <>Matched to planned: <span className="font-semibold">{suggested.name}</span></>
+              {suggested && commitmentId === suggested.id
+                ? <>Looks like: <span className="font-semibold">{suggested.name}</span></>
                 : "Fulfills a planned payment?"}
             </p>
             <div className="flex flex-wrap gap-2">
               <Chip
-                active={planItemIds.length === 0}
+                active={commitmentId === null}
                 onClick={() => {
                   touchedPlan.current = true;
-                  setPlanItemIds([]);
+                  setCommitmentId(null);
                 }}
               >
                 None
               </Chip>
-              {openItems
-                .filter((i) => (txn.amount > 0) === (i.kind === "income"))
-                .map((i) => (
-                  <Chip key={i.id} active={planItemIds.includes(i.id)} onClick={() => togglePlanItem(i.id)}>
-                    {i.name}{i.due_date ? ` · ${shortDate(i.due_date)}` : ""} · {fmt(i.amount)}
-                  </Chip>
-                ))}
+              {candidates.map(({ commitment: i, claimedBy }) => (
+                <Chip
+                  key={i.id}
+                  active={commitmentId === i.id}
+                  onClick={() => pickCommitment(i.id)}
+                  dim={!!claimedBy && commitmentId !== i.id}
+                >
+                  {i.name}{i.due_hint ? ` \u00b7 ${shortDate(i.due_hint)}` : ""} \u00b7 {fmt(i.amount)}
+                  {claimedBy ? ` \u00b7 claimed by ${claimedBy.merchant || claimedBy.description || "another payment"}` : ""}
+                </Chip>
+              ))}
             </div>
             <p className="text-xs" style={{ color: "var(--color-faint)" }}>
-              Pick more than one if this payment covers several occurrences.
+              Dimmed lines are already matched to something else \u2014 tap one to move it here.
             </p>
           </div>
         )}

@@ -9,10 +9,10 @@ import {
   useCategoryBudgets,
   useAccountBalances,
 } from "@/hooks/useSupabaseData";
-import { useMonthPlan } from "@/hooks/useMonthPlan";
+import { useCommitments } from "@/hooks/useCommitments";
 import { useTxnWindow } from "@/components/providers";
 import { rollup, loanPaydown, monthKey } from "@/lib/aggregations";
-import { ledger as buildLedger, autoLinkByRule } from "@/lib/monthPlan";
+import { ledger as buildLedger } from "@/lib/commitments/ledger";
 import { fmt, fmt0, currentMonthKey, monthLabel, addMonth } from "@/lib/format";
 import { BUCKETS } from "@/lib/buckets";
 import { Card } from "@/components/ui/Card";
@@ -27,12 +27,13 @@ import { NewTransaction } from "@/components/transactions/NewTransaction";
 import { ReviewFlow } from "@/components/review/ReviewFlow";
 import { LedgerSheet } from "@/components/plan/LedgerSheet";
 import { MonthPlanSheet } from "@/components/plan/MonthPlanSheet";
-import type { BucketType, Category, PlanItemKind } from "@/lib/types";
+import type { BucketType, Category } from "@/lib/types";
+import type { CommitmentKind } from "@/lib/commitments/types";
 
 const DEBT_PETAL = { color: "#F97316", icon: "account_balance", label: "Debt payments" };
 
 /* Dimmed petals for committed-but-unpaid plan items, grouped by kind. */
-const PENDING_STYLE: Record<Exclude<PlanItemKind, "income">, { color: string; icon: string; label: string }> = {
+const PENDING_STYLE: Record<Exclude<CommitmentKind, "income">, { color: string; icon: string; label: string }> = {
   bill: { color: "#64748B", icon: "receipt_long", label: "Upcoming bills" },
   debt: { color: DEBT_PETAL.color, icon: DEBT_PETAL.icon, label: "Upcoming debt payments" },
   cc_payment: { color: "#8B5CF6", icon: "credit_card", label: "Upcoming card payments" },
@@ -90,16 +91,16 @@ export function HomeScreen() {
   );
 
   /* ---- the free-to-spend ledger ---- */
-  const { data: planData } = useMonthPlan(month);
-  const planItems = useMemo(() => planData?.items ?? [], [planData]);
-  const led = useMemo(() => {
-    const overlay = autoLinkByRule(planItems, transactions);
-    return buildLedger(planItems, transactions, month, {
-      creditAccountIds: creditIds,
-      loanAccountIds: loanIds,
-      savingsAccountIds: savingsIds,
-    }, overlay);
-  }, [planItems, transactions, month, creditIds, loanIds, savingsIds]);
+  const { data: commitments = [] } = useCommitments(month);
+  const led = useMemo(
+    () =>
+      buildLedger(commitments, transactions, month, {
+        creditAccountIds: creditIds,
+        loanAccountIds: loanIds,
+        savingsAccountIds: savingsIds,
+      }),
+    [commitments, transactions, month, creditIds, loanIds, savingsIds],
+  );
 
   // Gauge scale: expected income from the ledger; sensible fallbacks while a
   // plan doesn't exist yet (fresh month, or months before plans existed).
@@ -173,10 +174,10 @@ export function HomeScreen() {
     // Current month: committed-but-unpaid plan items as dimmed segments that
     // solidify (become real petals) as they're paid.
     if (isCurrent) {
-      const pendingByKind = new Map<Exclude<PlanItemKind, "income">, { total: number; breakdown: { label: string; value: number }[] }>();
+      const pendingByKind = new Map<Exclude<CommitmentKind, "income">, { total: number; breakdown: { label: string; value: number }[] }>();
       for (const i of led.items) {
         if (i.kind === "income" || i.excluded || i.status === "paid") continue;
-        const kind = i.kind as Exclude<PlanItemKind, "income">;
+        const kind = i.kind as Exclude<CommitmentKind, "income">;
         const entry = pendingByKind.get(kind) ?? { total: 0, breakdown: [] };
         entry.total += -i.amount;
         entry.breakdown.push({ label: i.name, value: -i.amount });
