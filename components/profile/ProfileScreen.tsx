@@ -16,13 +16,12 @@ import { ImportWizard } from "@/components/import/ImportWizard";
 import { ImportStartDateEditor } from "@/components/settings/ImportStartDateEditor";
 import { ConnectionsManager } from "@/components/settings/ConnectionsManager";
 import { DeleteAllTransactions } from "@/components/settings/DeleteAllTransactions";
-import { RecurringManager } from "@/components/settings/RecurringManager";
 import { MonthPlanSheet } from "@/components/plan/MonthPlanSheet";
 import { currentMonthKey } from "@/lib/format";
 import { InstallButton } from "@/components/pwa/InstallButton";
 import type { Account, ThemeMode } from "@/lib/types";
 
-type Sheet = "budget" | "categories" | "import" | "importDate" | "connections" | "recurring" | "monthPlan" | "deleteAll" | null;
+type Sheet = "budget" | "categories" | "import" | "importDate" | "connections" | "monthPlan" | "deleteAll" | null;
 
 export function ProfileScreen() {
   const router = useRouter();
@@ -74,7 +73,6 @@ export function ProfileScreen() {
           <SettingRow icon="tune" label="Budget plan" onClick={() => setSheet("budget")} />
           <SettingRow icon="category" label="Manage categories" onClick={() => setSheet("categories")} />
           <SettingRow icon="account_balance" label="Bank connections" onClick={() => setSheet("connections")} />
-          <SettingRow icon="repeat" label="Recurring transactions" onClick={() => setSheet("recurring")} />
           <SettingRow icon="event_note" label="Month plan" onClick={() => setSheet("monthPlan")} />
           <SettingRow icon="upload_file" label="Import CSV" onClick={() => setSheet("import")} />
           <SettingRow icon="event" label="Import start date" onClick={() => setSheet("importDate")} />
@@ -149,7 +147,6 @@ export function ProfileScreen() {
       {sheet === "budget" && <BudgetEditor onClose={() => setSheet(null)} />}
       {sheet === "categories" && <CategoryManager onClose={() => setSheet(null)} />}
       {sheet === "connections" && <ConnectionsManager onClose={() => setSheet(null)} />}
-      {sheet === "recurring" && <RecurringManager onClose={() => setSheet(null)} />}
       {sheet === "monthPlan" && <MonthPlanSheet month={currentMonthKey()} onClose={() => setSheet(null)} />}
       {sheet === "import" && <ImportWizard onClose={() => setSheet(null)} />}
       {sheet === "importDate" && <ImportStartDateEditor onClose={() => setSheet(null)} />}

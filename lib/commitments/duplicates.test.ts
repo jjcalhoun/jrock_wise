@@ -115,3 +115,38 @@ describe("findDuplicateSeries", () => {
     ).toEqual([]);
   });
 });
+
+describe("the plan's duplicate prompt", () => {
+  it("catches the Ooma case: identical names, days apart", () => {
+    // both rules were literally named "Ooma" — detection's name-based dedupe
+    // let them through because they came from different creation paths
+    const groups = findDuplicateSeries([
+      s({ id: "ooma-a", name: "Ooma", amount: -6.81 }),
+      s({ id: "ooma-b", name: "Ooma", amount: -6.81 }),
+      s({ id: "verizon", name: "Verizon", amount: -73.7 }),
+    ]);
+    expect(groups).toHaveLength(1);
+    expect(groups[0].members.map((m) => m.id).sort()).toEqual(["ooma-a", "ooma-b"]);
+    expect(groups[0].score).toBeGreaterThan(0.95);
+  });
+
+  it("stays quiet on a real bill list", () => {
+    expect(
+      findDuplicateSeries([
+        s({ id: "1", name: "Mortgage Payment", amount: -583.57 }),
+        s({ id: "2", name: "Department of Education", amount: -221.33 }),
+        s({ id: "3", name: "Child support", amount: -206 }),
+        s({ id: "4", name: "Ellettsville Uti", amount: -118.64 }),
+        s({ id: "5", name: "Certificate of Origin Prog So Eastern", amount: -99.67 }),
+        s({ id: "6", name: "Smithville Tele Bill", amount: -74.99 }),
+        s({ id: "7", name: "Verizon", amount: -73.7 }),
+        s({ id: "8", name: "Duke Energy", amount: -61.96 }),
+        s({ id: "9", name: "Vectren Energy", amount: -30.12 }),
+        s({ id: "10", name: "Philo.com", amount: -25 }),
+        s({ id: "11", name: "YouTube Premium", amount: -15.99 }),
+        s({ id: "12", name: "Ooma", amount: -6.81 }),
+        s({ id: "13", name: "Link.com", amount: -1.5 }),
+      ]),
+    ).toEqual([]);
+  });
+});

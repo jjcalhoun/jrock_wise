@@ -1,23 +1,22 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { Sheet } from "@/components/ui/Sheet";
 import { Input } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
 import { Chip } from "@/components/ui/Chip";
 import { CategoryGrid } from "@/components/transactions/CategoryGrid";
-import { useAccounts, useCategories, useTransactions } from "@/hooks/useSupabaseData";
-import {
-  useRecurringRules,
-  useUpsertRecurringRule,
-  useDeleteRecurringRule,
-  useGenerateRecurring,
-  useDismissedSuggestions,
-  useDismissSuggestion,
-} from "@/hooks/useRecurring";
-import { detectRecurring, type RecurringSuggestion } from "@/lib/recurringDetect";
-import { fmt } from "@/lib/format";
+import { useAccounts, useCategories } from "@/hooks/useSupabaseData";
+import { useUpsertRecurringRule, useDeleteRecurringRule } from "@/hooks/useRecurring";
 import type { RecurringRule, RecurringFrequency } from "@/lib/types";
+
+/* Editing one recurring series: what it is, where it's paid from, and how it
+   repeats. Saving writes the rule AND pushes name, amount and schedule onto
+   this period's commitments, so the plan reflects the edit immediately.
+
+   This used to live inside the recurring manager screen. It moved out so the
+   month plan can open it directly — the plan row IS the series now, so there
+   is no separate list of rules to manage. */
 
 const FREQS: { value: RecurringFrequency; label: string }[] = [
   { value: "monthly", label: "Monthly" },
@@ -26,148 +25,9 @@ const FREQS: { value: RecurringFrequency; label: string }[] = [
   { value: "weekly", label: "Weekly" },
 ];
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-
-function freqLabel(r: RecurringRule): string {
-  if (r.frequency === "monthly") return `Monthly · day ${r.day_of_month}`;
-  if (r.frequency === "semimonthly") return `Twice monthly · ${r.day_of_month} & ${r.day_of_month_2}`;
-  if (r.frequency === "biweekly") return `Every 2 weeks`;
-  return "Weekly";
-}
-
-export function RecurringManager({ onClose }: { onClose: () => void }) {
-  const { data: rules = [] } = useRecurringRules();
-  const { data: transactions = [] } = useTransactions();
-  const { data: dismissed = [] } = useDismissedSuggestions();
-  const upsert = useUpsertRecurringRule();
-  const dismiss = useDismissSuggestion();
-  const generate = useGenerateRecurring();
-  const [editing, setEditing] = useState<RecurringRule | "new" | null>(null);
-
-  const suggestions = useMemo(
-    () =>
-      detectRecurring(
-        transactions,
-        rules.map((r) => ({ account_id: r.account_id, type: r.type, name: r.name, active: r.active })),
-        new Set(dismissed),
-      ),
-    [transactions, rules, dismissed],
-  );
-
-  function addSuggestion(s: RecurringSuggestion) {
-    upsert.mutate({
-      name: s.name,
-      account_id: s.account_id,
-      type: s.type,
-      amount: s.amount,
-      transfer_account_id: s.transfer_account_id,
-      category_id: s.category_id,
-      bucket: s.bucket,
-      frequency: s.frequency,
-      day_of_month: s.day_of_month,
-      weekday: s.weekday,
-      interval: 1,
-      start_date: s.lastDate,
-      last_generated: todayISO(),
-      auto_review: true,
-      active: true,
-    });
-  }
-
-  if (editing) {
-    return <RuleEditor rule={editing === "new" ? undefined : editing} onClose={() => setEditing(null)} />;
-  }
-
-  return (
-    <Sheet title="Recurring transactions" onClose={onClose}>
-      <div className="px-5 py-4 space-y-4">
-        <p className="text-sm" style={{ color: "var(--color-muted)" }}>
-          Predictable transactions that generate automatically — paycheck
-          allocations, fixed bills, and the like. They appear up to today and stay
-          in sync on each app open.
-        </p>
-
-        {suggestions.length > 0 && (
-          <div className="space-y-2">
-            <p className="text-xs font-semibold" style={{ color: "var(--color-text)" }}>
-              Looks recurring
-            </p>
-            {suggestions.map((s) => (
-              <div
-                key={s.signature}
-                className="rounded-xl border p-3"
-                style={{ background: "var(--color-elevated)", borderColor: "var(--color-primary)" }}
-              >
-                <div className="flex items-center justify-between">
-                  <div className="min-w-0">
-                    <p className="text-sm font-medium truncate" style={{ color: "var(--color-text)" }}>{s.name}</p>
-                    <p className="text-xs" style={{ color: "var(--color-faint)" }}>
-                      {s.frequency === "monthly" ? "Monthly" : s.frequency === "biweekly" ? "Every 2 weeks" : "Weekly"} · seen {s.count}×
-                    </p>
-                  </div>
-                  <span className="font-figure text-sm shrink-0" style={{ color: s.amount < 0 ? "var(--color-text)" : "var(--color-positive)" }}>
-                    {fmt(s.amount)}
-                  </span>
-                </div>
-                <div className="flex gap-2 mt-2.5">
-                  <Button size="sm" onClick={() => addSuggestion(s)} disabled={upsert.isPending}>
-                    Add rule
-                  </Button>
-                  <Button size="sm" variant="secondary" onClick={() => dismiss.mutate(s.signature)} disabled={dismiss.isPending}>
-                    Dismiss
-                  </Button>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {rules.length > 0 && (
-          <div className="space-y-2">
-            {rules.map((r) => (
-              <button
-                key={r.id}
-                onClick={() => setEditing(r)}
-                className="w-full flex items-center justify-between rounded-xl border p-3 text-left"
-                style={{ background: "var(--color-surface)", borderColor: "var(--color-hairline)" }}
-              >
-                <div>
-                  <p className="text-sm font-medium" style={{ color: "var(--color-text)" }}>
-                    {r.name}
-                  </p>
-                  <p className="text-xs" style={{ color: "var(--color-faint)" }}>
-                    {freqLabel(r)}{r.active ? "" : " · paused"}
-                  </p>
-                </div>
-                <span className="font-figure text-sm" style={{ color: r.amount < 0 ? "var(--color-text)" : "var(--color-positive)" }}>
-                  {fmt(r.amount)}
-                </span>
-              </button>
-            ))}
-          </div>
-        )}
-
-        <Button fullWidth variant="secondary" onClick={() => setEditing("new")}>
-          + Add recurring rule
-        </Button>
-
-        {rules.length > 0 && (
-          <button
-            onClick={() => generate.mutate()}
-            disabled={generate.isPending}
-            className="w-full text-xs font-semibold py-1"
-            style={{ color: "var(--color-primary)" }}
-          >
-            {generate.isPending ? "Generating…" : "Generate now"}
-          </button>
-        )}
-      </div>
-    </Sheet>
-  );
-}
-
 const todayISO = () => new Date().toISOString().slice(0, 10);
 
-function RuleEditor({ rule, onClose }: { rule?: RecurringRule; onClose: () => void }) {
+export function SeriesEditor({ rule, onClose }: { rule?: RecurringRule; onClose: () => void }) {
   const { data: accounts = [] } = useAccounts();
   const { data: categories = [] } = useCategories();
   const upsert = useUpsertRecurringRule();
