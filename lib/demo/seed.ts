@@ -173,7 +173,7 @@ export function buildSeed(todayIso: string): DemoTables {
     start_date: iso(historyStart),
     end_date: null,
     auto_review: true,
-    last_generated: iso(monthEnd),
+    last_generated: todayIso,
     active: true,
     ...stamp,
     ...r,
@@ -214,11 +214,12 @@ export function buildSeed(todayIso: string): DemoTables {
     });
   };
 
-  /* rule-generated rows: history through the END of the current month
-     (manual-account semantics — committed to the budget from the 1st). */
+  /* rule-generated rows: history up to TODAY only.
+     The plan commits the whole month through its commitments; posting
+     transactions ahead of their date would read as money already moved. */
   const rnd0 = prng(dayNum(todayIso.slice(0, 8) + "01"));
   for (const rule of RULES) {
-    for (const date of ruleDates(rule, historyStart, monthEnd)) {
+    for (const date of ruleDates(rule, historyStart, today)) {
       const external = `recurring:${rule.id}:${date}`;
       const amount = rule.variable
         ? round2(rule.amount * (0.85 + prng(dayNum(date))() * 0.4))

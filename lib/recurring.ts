@@ -1,7 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { randomUUID } from "node:crypto";
 import type { RecurringRule, RecurringFrequency } from "@/lib/types";
-import { clampDay, todayISO, endOfMonthISO } from "@/lib/dates";
+import { clampDay, todayISO } from "@/lib/dates";
 
 /* Recurring transaction generation. Pure date math (occurrences) is unit-tested;
    generateRecurring materializes the rows. Occurrences are produced only through
@@ -77,7 +77,6 @@ export async function generateRecurring(
   userId: string,
 ): Promise<GenerateResult> {
   const today = todayISO();
-  const monthEnd = endOfMonthISO();
   const [{ data: rules, error }, { data: maps }] = await Promise.all([
     supabase.from("recurring_rules").select("*").eq("user_id", userId).eq("active", true),
     supabase.from("simplefin_account_map").select("account_id").eq("user_id", userId),
@@ -132,10 +131,15 @@ export async function generateRecurring(
         .eq("user_id", userId);
       continue;
     }
-    // On a MANUAL account, pre-post the rest of this month so the items are
-    // committed to the budget from the 1st (the balance view ignores dates in
-    // the future, so they don't move balances until their day arrives).
-    const to = monthEnd;
+    // On a MANUAL account, post occurrences only up to TODAY — never ahead.
+    //
+    // This used to pre-post the rest of the month so items were committed to
+    // the budget from the 1st. Commitments do that job now: the ledger counts a
+    // planned occurrence from the 1st whether or not a transaction exists. The
+    // pre-posted rows became pure duplication, and worse, an unlinked future row
+    // counted as money already received — two future paydays showed up as $840
+    // of "extra income" on top of the same $840 the plan already expected.
+    const to = today;
     const from = rule.last_generated ? addDay(rule.last_generated) : rule.start_date;
     const dates = occurrences(rule, from, to);
     let failed = false;
