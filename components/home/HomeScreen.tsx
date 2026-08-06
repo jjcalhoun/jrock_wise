@@ -12,6 +12,7 @@ import {
 import { useCommitments } from "@/hooks/useCommitments";
 import { useTxnWindow } from "@/components/providers";
 import { rollup, loanPaydown, monthKey } from "@/lib/aggregations";
+import { debtPayment } from "@/lib/debt";
 import { ledger as buildLedger } from "@/lib/commitments/ledger";
 import { fmt, fmt0, currentMonthKey, monthLabel, addMonth } from "@/lib/format";
 import { BUCKETS } from "@/lib/buckets";
@@ -135,7 +136,12 @@ export function HomeScreen() {
       }
     }
     const actual = Object.values(byAccount).reduce((s, v) => s + v, 0);
-    const budgetAmt = loans.reduce((s, a) => s + (a.min_payment ?? 0), 0);
+    // escrow leaves checking but never pays down a loan, so the target is the
+    // debt-only portion of each payment
+    const budgetAmt = loans.reduce(
+      (s, a) => s + debtPayment(a, Math.max(0, -(balances[a.id] ?? 0))),
+      0,
+    );
     let avg = 0;
     for (let i = 1; i <= 3; i++) avg += loanPaydown(transactions, loanIds, addMonth(month, -i));
     const breakdown = loans
@@ -143,7 +149,7 @@ export function HomeScreen() {
       .map((a) => ({ label: a.name, value: byAccount[a.id] }))
       .sort((x, y) => y.value - x.value);
     return { actual, budget: budgetAmt, avg3: avg / 3, breakdown, txns };
-  }, [transactions, accounts, loanIds, month]);
+  }, [transactions, accounts, loanIds, month, balances]);
 
   /* ---- petals: actual spend + dimmed upcoming commitments ---- */
   const petals: GaugePetal[] = useMemo(() => {
