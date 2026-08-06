@@ -63,11 +63,14 @@ export function useUpsertRecurringRule() {
       // stop dragging free-to-spend down.
       if (!isNew && input.id && input.active === false) {
         await excludeUnpaidFutureItems(input.id);
+      } else if (!isNew && input.id) {
+        await syncSeriesFromRule({ ...rule, id: input.id });
       }
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["recurring_rules"] });
-      qc.invalidateQueries({ queryKey: ["month_plan"] });
+      qc.invalidateQueries({ queryKey: ["commitments"] });
+      qc.invalidateQueries({ queryKey: ["commitments_window"] });
       qc.invalidateQueries({ queryKey: ["transactions"] });
     },
   });
@@ -83,13 +86,7 @@ async function appendRuleToCurrentPlan(
   const { todayISO, endOfMonthISO } = await import("@/lib/dates");
 
   const today = todayISO();
-  const month = today.slice(0, 7);
-  const { data: plan } = await supabase
-    .from("month_plans")
-    .select("id")
-    .eq("month", month)
-    .maybeSingle();
-  if (!plan) return; // no plan yet — the draft will pick the rule up
+  const period = today.slice(0, 7);
 
   const { data: accounts } = await supabase.from("accounts").select("id, type");
   const accountById = Object.fromEntries((accounts ?? []).map((a) => [a.id as string, a]));
@@ -99,11 +96,16 @@ async function appendRuleToCurrentPlan(
   );
   if (!kind) return; // cash-neutral shuffle
 
-  // The WHOLE month's occurrences — including ones already past, so a rule
-  // created after its due date (e.g. a mortgage due the 1st, rule made the
-  // 12th) still gets a line the real payment can link to. The spawning
-  // transaction is linked below; other past occurrences sit as expected until
-  // a payment is linked or the user unchecks them.
+  // A series already materialized for this period needs nothing more.
+  const { data: existing } = await supabase
+    .from("commitments")
+    .select("id")
+    .eq("series_id", rule.id)
+    .eq("period", period);
+  if ((existing ?? []).length > 0) return;
+
+  // The WHOLE period's occurrences — including ones already past, so a rule
+  // created after its due date still has a line the real payment can fill.
   const dates = occurrences(
     {
       frequency: rule.frequency,
@@ -114,10 +116,12 @@ async function appendRuleToCurrentPlan(
       start_date: rule.start_date,
       end_date: rule.end_date ?? null,
     },
-    `${month}-01`,
+    `${period}-01`,
     endOfMonthISO(),
   );
-  if (dates.length === 0) return;
+  // A monthly commitment with no computable day still deserves its line — the
+  // date is a hint, so "sometime this month" is a legitimate expectation.
+  const hints: (string | null)[] = dates.length > 0 ? dates : [null];
 
   // Variable bills (history varies >5%) always confirm in review.
   let variable = false;
@@ -133,36 +137,86 @@ async function appendRuleToCurrentPlan(
 
   const mag = Math.abs(rule.amount);
   const { data: inserted } = await supabase
-    .from("month_plan_items")
+    .from("commitments")
     .insert(
-      dates.map((due_date) => ({
+      hints.map((due_hint, seq) => ({
         user_id,
-        plan_id: plan.id,
-        rule_id: rule.id,
+        series_id: rule.id, // the rule's id IS its series id
+        period,
+        seq,
         name: rule.name,
         kind,
         amount: kind === "income" ? mag : -mag,
-        due_date,
+        account_id: rule.account_id,
+        transfer_account_id: rule.transfer_account_id ?? null,
+        category_id: rule.category_id ?? null,
+        bucket: rule.bucket ?? null,
+        due_hint,
+        frequency: rule.frequency,
+        day_of_month: rule.day_of_month ?? null,
+        day_of_month_2: rule.day_of_month_2 ?? null,
+        weekday: rule.weekday ?? null,
+        interval: rule.interval ?? 1,
+        series_ended: rule.active === false,
         variable,
       })),
     )
-    .select("id, due_date");
+    .select("id, due_hint");
 
-  // Link the spawning transaction to its nearest occurrence, so that one
-  // counts as paid instead of double-counting (planned + actual). Only when
-  // the transaction isn't already linked to something else.
+  // Link the spawning transaction to its nearest occurrence, so that one reads
+  // as paid instead of double-counting (planned + actual).
   if (sourceTxn && inserted && inserted.length > 0) {
-    const target = [...inserted].sort(
-      (a, b) =>
-        Math.abs(Date.parse(a.due_date as string) - Date.parse(sourceTxn.date + "T00:00:00Z")) -
-        Math.abs(Date.parse(b.due_date as string) - Date.parse(sourceTxn.date + "T00:00:00Z")),
-    )[0];
+    const target = [...inserted].sort((a, b) => {
+      const da = a.due_hint ? Math.abs(Date.parse(a.due_hint as string) - Date.parse(sourceTxn.date)) : Infinity;
+      const db = b.due_hint ? Math.abs(Date.parse(b.due_hint as string) - Date.parse(sourceTxn.date)) : Infinity;
+      return da - db;
+    })[0];
     await supabase
       .from("transactions")
-      .update({ plan_item_id: target.id })
+      .update({ commitment_id: target.id })
       .eq("id", sourceTxn.id)
-      .is("plan_item_id", null);
+      .is("commitment_id", null);
   }
+}
+
+/** Push an edited rule's fields onto its current-period commitments, so the
+ *  plan reflects the edit. Only untouched lines are rewritten: anything the
+ *  user skipped, re-priced, or already matched keeps what it has. */
+async function syncSeriesFromRule(rule: Omit<RecurringRuleInput, "_sourceTxn"> & { id: string }) {
+  const { todayISO } = await import("@/lib/dates");
+  const period = todayISO().slice(0, 7);
+  const mag = Math.abs(rule.amount);
+  const { data: rows } = await supabase
+    .from("commitments")
+    .select("id, kind")
+    .eq("series_id", rule.id)
+    .eq("period", period)
+    .eq("skipped", false);
+  const ids = (rows ?? []).map((r) => r.id as string);
+  if (ids.length === 0) return;
+
+  const { data: linked } = await supabase
+    .from("transactions")
+    .select("commitment_id")
+    .in("commitment_id", ids);
+  const taken = new Set((linked ?? []).map((t) => t.commitment_id as string));
+  const free = ids.filter((id) => !taken.has(id));
+  if (free.length === 0) return;
+
+  const kind = (rows ?? [])[0]?.kind as string | undefined;
+  await supabase
+    .from("commitments")
+    .update({
+      name: rule.name,
+      amount: kind === "income" ? mag : -mag,
+      frequency: rule.frequency,
+      day_of_month: rule.day_of_month ?? null,
+      day_of_month_2: rule.day_of_month_2 ?? null,
+      weekday: rule.weekday ?? null,
+      interval: rule.interval ?? 1,
+      updated_at: new Date().toISOString(),
+    })
+    .in("id", free);
 }
 
 export function useDeleteRecurringRule() {
@@ -177,33 +231,39 @@ export function useDeleteRecurringRule() {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["recurring_rules"] });
-      qc.invalidateQueries({ queryKey: ["month_plan"] });
+      qc.invalidateQueries({ queryKey: ["commitments"] });
+      qc.invalidateQueries({ queryKey: ["commitments_window"] });
       qc.invalidateQueries({ queryKey: ["transactions"] });
     },
   });
 }
 
-/** Exclude a rule's future, unlinked plan items (used on pause/delete): a
- *  commitment nobody is going to pay shouldn't reduce free-to-spend. Paid or
- *  already-linked items are left alone — history stays truthful. */
+/** End a rule's series (used on pause/delete): no future occurrences, and any
+ *  not-yet-paid line left in the current period is skipped so a commitment
+ *  nobody will pay stops dragging free-to-spend down. Already-matched lines are
+ *  left alone — history stays truthful. */
 async function excludeUnpaidFutureItems(ruleId: string) {
-  const { todayISO } = await import("@/lib/dates");
-  const { data: items } = await supabase
-    .from("month_plan_items")
+  await supabase
+    .from("commitments")
+    .update({ series_ended: true, updated_at: new Date().toISOString() })
+    .eq("series_id", ruleId);
+
+  const { data: rows } = await supabase
+    .from("commitments")
     .select("id")
-    .eq("rule_id", ruleId)
-    .eq("excluded", false)
-    .gt("due_date", todayISO());
-  const ids = (items ?? []).map((i) => i.id as string);
+    .eq("series_id", ruleId)
+    .eq("skipped", false);
+  const ids = (rows ?? []).map((r) => r.id as string);
   if (ids.length === 0) return;
+
   const { data: linked } = await supabase
     .from("transactions")
-    .select("plan_item_id")
-    .in("plan_item_id", ids);
-  const taken = new Set((linked ?? []).map((t) => t.plan_item_id as string));
-  const toExclude = ids.filter((id) => !taken.has(id));
-  if (toExclude.length === 0) return;
-  await supabase.from("month_plan_items").update({ excluded: true }).in("id", toExclude);
+    .select("commitment_id")
+    .in("commitment_id", ids);
+  const taken = new Set((linked ?? []).map((t) => t.commitment_id as string));
+  const toSkip = ids.filter((id) => !taken.has(id));
+  if (toSkip.length === 0) return;
+  await supabase.from("commitments").update({ skipped: true }).in("id", toSkip);
 }
 
 /** Signatures of recurring suggestions the user has dismissed. */
