@@ -148,4 +148,64 @@ describe("linkTransactionToCommitment", () => {
       expect(legs).toHaveLength(1);
     });
   });
+
+  describe("one payment covering several occurrences", () => {
+    beforeEach(async () => {
+      await db.from("commitments").delete().eq("user_id", "test");
+      await db.from("commitments").insert([
+        { id: "W1", user_id: "test", kind: "bill", period: "2026-08", covered_by: null },
+        { id: "W2", user_id: "test", kind: "bill", period: "2026-08", covered_by: null },
+        { id: "W3", user_id: "test", kind: "bill", period: "2026-08", covered_by: null },
+        { id: "W4", user_id: "test", kind: "bill", period: "2026-08", covered_by: null },
+      ]);
+      await db.from("transactions").insert({
+        id: "LUMP", user_id: "test", account_id: "CHK", amount: -824,
+        date: "2026-08-07", type: "expense", reviewed: false, merchant: "Child support",
+      });
+    });
+
+    const weeks = async () => {
+      const { data } = await db.from("commitments").select("*").in("id", ["W1", "W2", "W3", "W4"]);
+      return Object.fromEntries(((data ?? []) as { id: string }[]).map((c) => [c.id, c as Record<string, unknown>]));
+    };
+
+    it("the first pick is primary; the rest are covered by the same payment", async () => {
+      const { covered } = await linkTransactionToCommitment(db, "LUMP", ["W1", "W2", "W3", "W4"]);
+      expect(covered).toEqual(["W2", "W3", "W4"]);
+
+      const { data: txn } = await db.from("transactions").select("*").eq("id", "LUMP").maybeSingle();
+      expect(txn.commitment_id).toBe("W1"); // carries the whole amount
+
+      const w = await weeks();
+      expect(w.W1.covered_by).toBeNull(); // the primary is linked, not covered
+      expect(w.W2.covered_by).toBe("LUMP");
+      expect(w.W3.covered_by).toBe("LUMP");
+      expect(w.W4.covered_by).toBe("LUMP");
+    });
+
+    it("deselecting releases the weeks it no longer covers", async () => {
+      await linkTransactionToCommitment(db, "LUMP", ["W1", "W2", "W3", "W4"]);
+      await linkTransactionToCommitment(db, "LUMP", ["W1", "W2"]);
+      const w = await weeks();
+      expect(w.W2.covered_by).toBe("LUMP");
+      expect(w.W3.covered_by).toBeNull(); // let go
+      expect(w.W4.covered_by).toBeNull();
+    });
+
+    it("unlinking entirely clears every covered week", async () => {
+      await linkTransactionToCommitment(db, "LUMP", ["W1", "W2", "W3"]);
+      await linkTransactionToCommitment(db, "LUMP", null);
+      const w = await weeks();
+      expect(Object.values(w).every((c) => c.covered_by === null)).toBe(true);
+      const { data: txn } = await db.from("transactions").select("*").eq("id", "LUMP").maybeSingle();
+      expect(txn.commitment_id).toBeNull();
+    });
+
+    it("a single pick still works and covers nothing", async () => {
+      const { covered } = await linkTransactionToCommitment(db, "LUMP", "W1");
+      expect(covered).toEqual([]);
+      const w = await weeks();
+      expect(Object.values(w).every((c) => c.covered_by === null)).toBe(true);
+    });
+  });
 });

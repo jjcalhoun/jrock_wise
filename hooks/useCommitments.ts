@@ -98,7 +98,8 @@ export function useLinkCommitment() {
       commitmentId,
     }: {
       txnId: string;
-      commitmentId: string | null;
+      /** first id is the primary; the rest are covered by the same payment */
+      commitmentId: string | string[] | null;
     }) => {
       await linkTransactionToCommitment(supabase, txnId, commitmentId);
     },

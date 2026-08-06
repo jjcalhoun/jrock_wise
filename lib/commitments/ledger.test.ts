@@ -189,4 +189,38 @@ describe("commitments ledger", () => {
     expect(led.discretionary).toBe(0); // not double-charged
     expect(led.commitmentsEffective).toBeCloseTo(583.57, 2); // the real outflow, once
   });
+
+  it("a lump payment across four weeks counts the cash exactly once", () => {
+    // four weekly child-support lines, one payment of 824 settling all of them
+    const items = [
+      c({ id: "w1", name: "Child support", amount: -206, due_hint: "2026-07-07" }),
+      c({ id: "w2", name: "Child support", amount: -206, due_hint: "2026-07-14", covered_by: "lump" }),
+      c({ id: "w3", name: "Child support", amount: -206, due_hint: "2026-07-21", covered_by: "lump" }),
+      c({ id: "w4", name: "Child support", amount: -206, due_hint: "2026-07-28", covered_by: "lump" }),
+    ];
+    const led = ledger(
+      items,
+      [t({ id: "lump", amount: -824, date: "2026-07-07", commitment_id: "w1" })],
+      "2026-07",
+      ctx,
+    );
+    // the real outflow, not 824 + three planned 206s
+    expect(led.commitmentsEffective).toBe(824);
+    expect(led.discretionary).toBe(0);
+    // every week reads as settled
+    expect(led.items.every((i) => i.status === "paid")).toBe(true);
+    expect(led.items.filter((i) => i.coveredBy === "lump")).toHaveLength(3);
+  });
+
+  it("before the lump is matched, all four weeks are still expected", () => {
+    const items = [
+      c({ id: "w1", name: "Child support", amount: -206 }),
+      c({ id: "w2", name: "Child support", amount: -206 }),
+      c({ id: "w3", name: "Child support", amount: -206 }),
+      c({ id: "w4", name: "Child support", amount: -206 }),
+    ];
+    const led = ledger(items, [], "2026-07", ctx);
+    expect(led.commitmentsPlanned).toBe(824); // the month still expects all four
+    expect(led.items.every((i) => i.status === "expected")).toBe(true);
+  });
 });
