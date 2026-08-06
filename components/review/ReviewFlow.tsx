@@ -12,6 +12,7 @@ import { useUpsertRecurringRule, useRecurringRules } from "@/hooks/useRecurring"
 import { useCommitmentWindow, useLinkCommitment } from "@/hooks/useCommitments";
 import { rankCommitments, suggestCommitment, orderForDisplay } from "@/lib/commitments/match";
 import { periodWindow } from "@/lib/commitments/period";
+import { selectionFor } from "@/lib/commitments/restore";
 import { commitmentTransferTarget } from "@/lib/commitments/types";
 import { monthKey } from "@/lib/aggregations";
 import { CategoryGrid } from "@/components/transactions/CategoryGrid";
@@ -137,6 +138,13 @@ export function ReviewFlow({ onClose }: { onClose: () => void }) {
       setTransferAccountId(dest);
     }
   }, [commitmentIds, windowItems]);
+
+  // Reopening a linked transaction restores every occurrence it settles — the
+  // primary plus anything it covers.
+  useEffect(() => {
+    if (!txn?.commitment_id) return;
+    setCommitmentIds(selectionFor(txn, windowItems));
+  }, [windowItems, txn?.commitment_id, txn?.id]);
 
   // Tapping adds to the selection rather than replacing it: one payment can
   // settle several occurrences. The first tapped stays the primary.
