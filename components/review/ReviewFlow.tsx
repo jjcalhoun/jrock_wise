@@ -351,8 +351,10 @@ export function ReviewFlow({ onClose }: { onClose: () => void }) {
               </p>
             )}
 
-            {/* Planned payment match — every candidate is shown, scored.
-                Nothing links itself; this is the confirmation step. */}
+            {/* Planned payment match. Plain chips: name, date, amount.
+                Claimed lines drop to a "Claimed" group — dimmed, but still
+                selectable, because the reason to tap one is that an earlier
+                match was wrong. */}
             {candidates.length > 0 && (
               <div
                 className="rounded-[10px] p-3 space-y-2.5"
@@ -363,8 +365,7 @@ export function ReviewFlow({ onClose }: { onClose: () => void }) {
               >
                 <p className="text-sm" style={{ color: "var(--color-text)" }}>
                   {suggested && commitmentId === suggested.id ? (
-                    <>Looks like: <span className="font-semibold">{suggested.name}</span>{" "}
-                      <span style={{ color: "var(--color-faint)" }}>({fmt(suggested.amount)} planned)</span></>
+                    <>Looks like: <span className="font-semibold">{suggested.name}</span></>
                   ) : (
                     "Fulfills a planned payment?"
                   )}
@@ -373,24 +374,39 @@ export function ReviewFlow({ onClose }: { onClose: () => void }) {
                   <Chip active={commitmentId === null} onClick={() => setCommitmentId(null)}>
                     None
                   </Chip>
-                  {candidates.map(({ commitment: i, claimedBy }) => (
-                    <Chip
-                      key={i.id}
-                      active={commitmentId === i.id}
-                      onClick={() => setCommitmentId(commitmentId === i.id ? null : i.id)}
-                      dim={!!claimedBy && commitmentId !== i.id}
-                    >
-                      {i.name}
-                      {i.due_hint ? ` \u00b7 ${shortDate(i.due_hint)}` : ""} \u00b7 {fmt(i.amount)}
-                      {claimedBy
-                        ? ` \u00b7 claimed by ${claimedBy.merchant || claimedBy.description || "another payment"}`
-                        : ""}
-                    </Chip>
-                  ))}
+                  {candidates
+                    .filter((x) => !x.claimedBy)
+                    .map(({ commitment: i }) => (
+                      <Chip
+                        key={i.id}
+                        active={commitmentId === i.id}
+                        onClick={() => setCommitmentId(commitmentId === i.id ? null : i.id)}
+                      >
+                        {chipLabel(i)}
+                      </Chip>
+                    ))}
                 </div>
-                <p className="text-xs" style={{ color: "var(--color-faint)" }}>
-                  Dimmed lines are already matched to something else \u2014 tap one to move it here.
-                </p>
+                {candidates.some((x) => x.claimedBy) && (
+                  <>
+                    <p className="text-xs font-semibold" style={{ color: "var(--color-faint)" }}>
+                      Claimed
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      {candidates
+                        .filter((x) => x.claimedBy)
+                        .map(({ commitment: i }) => (
+                          <Chip
+                            key={i.id}
+                            active={commitmentId === i.id}
+                            dim={commitmentId !== i.id}
+                            onClick={() => setCommitmentId(commitmentId === i.id ? null : i.id)}
+                          >
+                            {chipLabel(i)}
+                          </Chip>
+                        ))}
+                    </div>
+                  </>
+                )}
               </div>
             )}
 
@@ -460,4 +476,13 @@ export function ReviewFlow({ onClose }: { onClose: () => void }) {
       </div>
     </div>
   );
+}
+
+/** Chip text: name, date, amount. Nothing about claim state — the dimming
+ *  and the Claimed group already say that. */
+function chipLabel(i: { name: string; due_hint?: string | null; amount: number }): string {
+  const parts = [i.name];
+  if (i.due_hint) parts.push(shortDate(i.due_hint));
+  parts.push(fmt(i.amount));
+  return parts.join(" \u00b7 ");
 }

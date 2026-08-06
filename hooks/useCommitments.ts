@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createClient } from "@/lib/supabase/client";
 import type { Commitment } from "@/lib/commitments/types";
 import { cloneForward, latestPerSeries } from "@/lib/commitments/clone";
+import { linkTransactionToCommitment } from "@/lib/commitments/link";
 
 const supabase = createClient();
 
@@ -99,11 +100,7 @@ export function useLinkCommitment() {
       txnId: string;
       commitmentId: string | null;
     }) => {
-      const { error } = await supabase
-        .from("transactions")
-        .update({ commitment_id: commitmentId })
-        .eq("id", txnId);
-      if (error) throw error;
+      await linkTransactionToCommitment(supabase, txnId, commitmentId);
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["transactions"] });
