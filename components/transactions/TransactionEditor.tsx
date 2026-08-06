@@ -416,8 +416,9 @@ export function TransactionEditor({ txn, onClose, inline }: Props) {
           </div>
         )}
 
-        {/* Planned payment link — mirrors the review flow. Every candidate is
-            shown, scored; claimed ones stay offered rather than disappearing. */}
+        {/* Planned payment link — mirrors the review flow. Plain chips;
+            claimed lines drop to a dimmed "Claimed" group that stays
+            selectable so a bad match can be taken back. */}
         {(candidates.length > 0 || txn.commitment_id) && (
           <div
             className="rounded-[10px] p-3 space-y-2.5"
@@ -441,21 +442,35 @@ export function TransactionEditor({ txn, onClose, inline }: Props) {
               >
                 None
               </Chip>
-              {candidates.map(({ commitment: i, claimedBy }) => (
-                <Chip
-                  key={i.id}
-                  active={commitmentId === i.id}
-                  onClick={() => pickCommitment(i.id)}
-                  dim={!!claimedBy && commitmentId !== i.id}
-                >
-                  {i.name}{i.due_hint ? ` \u00b7 ${shortDate(i.due_hint)}` : ""} \u00b7 {fmt(i.amount)}
-                  {claimedBy ? ` \u00b7 claimed by ${claimedBy.merchant || claimedBy.description || "another payment"}` : ""}
-                </Chip>
-              ))}
+              {candidates
+                .filter((x) => !x.claimedBy)
+                .map(({ commitment: i }) => (
+                  <Chip key={i.id} active={commitmentId === i.id} onClick={() => pickCommitment(i.id)}>
+                    {chipLabel(i)}
+                  </Chip>
+                ))}
             </div>
-            <p className="text-xs" style={{ color: "var(--color-faint)" }}>
-              Dimmed lines are already matched to something else \u2014 tap one to move it here.
-            </p>
+            {candidates.some((x) => x.claimedBy) && (
+              <>
+                <p className="text-xs font-semibold" style={{ color: "var(--color-faint)" }}>
+                  Claimed
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {candidates
+                    .filter((x) => x.claimedBy)
+                    .map(({ commitment: i }) => (
+                      <Chip
+                        key={i.id}
+                        active={commitmentId === i.id}
+                        dim={commitmentId !== i.id}
+                        onClick={() => pickCommitment(i.id)}
+                      >
+                        {chipLabel(i)}
+                      </Chip>
+                    ))}
+                </div>
+              </>
+            )}
           </div>
         )}
 
@@ -489,4 +504,13 @@ export function TransactionEditor({ txn, onClose, inline }: Props) {
       {showRules && <RecurringManager onClose={() => setShowRules(false)} />}
     </Sheet>
   );
+}
+
+/** Chip text: name, date, amount. Claim state is conveyed by dimming and the
+ *  Claimed group, not by words. */
+function chipLabel(i: { name: string; due_hint?: string | null; amount: number }): string {
+  const parts = [i.name];
+  if (i.due_hint) parts.push(shortDate(i.due_hint));
+  parts.push(fmt(i.amount));
+  return parts.join(" \u00b7 ");
 }
