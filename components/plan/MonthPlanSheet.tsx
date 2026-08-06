@@ -14,6 +14,9 @@ import {
   useDeleteCommitment,
   useEndSeries,
 } from "@/hooks/useCommitments";
+import { useRecurringRules } from "@/hooks/useRecurring";
+import { SeriesEditor } from "@/components/plan/SeriesEditor";
+import { PlanSuggestions } from "@/components/plan/PlanSuggestions";
 import { fmt, fmt0, monthLabel } from "@/lib/format";
 import type { Commitment, CommitmentKind } from "@/lib/commitments/types";
 
@@ -44,6 +47,10 @@ export function MonthPlanSheet({ month, onClose }: { month: string; onClose: () 
   const del = useDeleteCommitment(month);
   const endSeries = useEndSeries(month);
   const [adding, setAdding] = useState(false);
+  // Editing a series happens from its row — the plan line IS the recurring
+  // item, so there's no separate list of rules to go and find.
+  const [editingSeries, setEditingSeries] = useState<string | null>(null);
+  const { data: rules = [] } = useRecurringRules();
   const drafted = useRef(false);
 
   // Materialize the period from the live series. Idempotent — series already
@@ -98,6 +105,11 @@ export function MonthPlanSheet({ month, onClose }: { month: string; onClose: () 
                   // stops future occurrences without erasing its history
                   onDelete={i.series_ended ? () => del.mutate(i.id) : undefined}
                   onEndSeries={i.series_ended ? undefined : () => endSeries.mutate(i.series_id)}
+                  onEdit={
+                    rules.some((r) => r.id === i.series_id)
+                      ? () => setEditingSeries(i.series_id)
+                      : undefined
+                  }
                 />
               ))}
             </Card>
@@ -137,6 +149,8 @@ export function MonthPlanSheet({ month, onClose }: { month: string; onClose: () 
           </div>
         </Card>
 
+        <PlanSuggestions onEdit={setEditingSeries} />
+
         {plan && !plan.confirmed_at ? (
           <Button fullWidth onClick={() => confirm.mutate(plan.id)} disabled={confirm.isPending}>
             {confirm.isPending ? "Confirming…" : `Confirm ${monthLabel(month)} plan`}
@@ -147,6 +161,12 @@ export function MonthPlanSheet({ month, onClose }: { month: string; onClose: () 
           </p>
         ) : null}
       </div>
+      {editingSeries && (
+        <SeriesEditor
+          rule={rules.find((r) => r.id === editingSeries)}
+          onClose={() => setEditingSeries(null)}
+        />
+      )}
     </Sheet>
   );
 }
@@ -157,12 +177,14 @@ function ItemRow({
   onAmount,
   onDelete,
   onEndSeries,
+  onEdit,
 }: {
   item: Commitment;
   onToggle: () => void;
   onAmount: (amount: number) => void;
   onDelete?: () => void;
   onEndSeries?: () => void;
+  onEdit?: () => void;
 }) {
   const [editing, setEditing] = useState(false);
   const [val, setVal] = useState("");
@@ -187,9 +209,17 @@ function ItemRow({
         style={{ accentColor: "var(--color-primary)" }}
       />
       <div className="flex-1 min-w-0">
-        <p className="text-sm truncate" style={{ color: "var(--color-text)" }}>
-          {item.name}
-        </p>
+        {onEdit ? (
+          <button onClick={onEdit} className="block w-full text-left">
+            <p className="text-sm truncate" style={{ color: "var(--color-text)" }}>
+              {item.name}
+            </p>
+          </button>
+        ) : (
+          <p className="text-sm truncate" style={{ color: "var(--color-text)" }}>
+            {item.name}
+          </p>
+        )}
         <p className="text-xs" style={{ color: "var(--color-faint)" }}>
           {day ? `around the ${day}${ordinal(day)}` : "this month"}
           {item.variable ? " · varies" : ""}
