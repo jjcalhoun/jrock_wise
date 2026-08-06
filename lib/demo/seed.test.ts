@@ -14,7 +14,7 @@ describe("demo seed", () => {
   it("covers ~3 months of history", () => {
     const dates = t.transactions.map((x) => x.date as string).sort();
     expect(dates[0] <= "2026-04-10").toBe(true);
-    expect(dates[dates.length - 1] >= "2026-07-15").toBe(true); // pre-posted month
+    expect(dates[dates.length - 1] <= "2026-07-15").toBe(true); // never ahead of today
   });
 
   it("has a confirmed current-month plan with linked occurrences", () => {
