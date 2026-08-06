@@ -3,7 +3,7 @@
 import { Sheet } from "@/components/ui/Sheet";
 import { Card } from "@/components/ui/Card";
 import { fmt, fmt0, monthLabel } from "@/lib/format";
-import type { Ledger } from "@/lib/monthPlan";
+import type { Ledger } from "@/lib/commitments/ledger";
 
 /* Read-only breakdown of the free-to-spend ledger: where the number comes
    from, line by line. Editing lives in the Month plan sheet. */

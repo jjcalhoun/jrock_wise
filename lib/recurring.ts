@@ -90,16 +90,34 @@ export async function generateRecurring(
   let inserted = 0;
   const errors: string[] = [];
 
-  // Plan items drafted from these rules — generated rows link to them so the
-  // free-to-spend ledger marks the commitment paid instead of double-counting.
-  const { data: planItems } = await supabase
-    .from("month_plan_items")
-    .select("id, rule_id, due_date")
-    .eq("user_id", userId)
-    .not("rule_id", "is", null);
-  const itemByRuleDate = new Map<string, string>(
-    (planItems ?? []).map((i) => [`${i.rule_id}|${i.due_date}`, i.id as string]),
-  );
+  // Commitments drafted from these rules — generated rows link to them so the
+  // ledger marks the commitment paid instead of double-counting. A rule's id is
+  // its series_id (the phase-1 backfill reused it), and lookup is by PERIOD
+  // rather than exact date: the due date is a hint, so a generated row on the
+  // 6th still fulfills a commitment hinted at the 5th.
+  const { data: commitments } = await supabase
+    .from("commitments")
+    .select("id, series_id, period, due_hint, seq")
+    .eq("user_id", userId);
+  const byPeriod = new Map<string, { id: string; due_hint: string | null; seq: number }[]>();
+  for (const c of commitments ?? []) {
+    const key = `${c.series_id}|${c.period}`;
+    const arr = byPeriod.get(key);
+    const row = { id: c.id as string, due_hint: (c.due_hint as string) ?? null, seq: c.seq as number };
+    if (arr) arr.push(row);
+    else byPeriod.set(key, [row]);
+  }
+  /** The occurrence in this rule's series closest to `date` within its period. */
+  const commitmentFor = (ruleId: string, date: string): string | null => {
+    const rows = byPeriod.get(`${ruleId}|${date.slice(0, 7)}`);
+    if (!rows || rows.length === 0) return null;
+    const scored = [...rows].sort((a, b) => {
+      const da = a.due_hint ? Math.abs(Date.parse(a.due_hint) - Date.parse(date)) : Infinity;
+      const db = b.due_hint ? Math.abs(Date.parse(b.due_hint) - Date.parse(date)) : Infinity;
+      return da - db || a.seq - b.seq;
+    });
+    return scored[0].id;
+  };
 
   for (const rule of (rules ?? []) as RecurringRule[]) {
     // SYNCED accounts get NO generated rows at all: the real transactions
@@ -160,7 +178,7 @@ export async function generateRecurring(
             source: "recurring",
             external_id: externalId,
             reviewed: rule.auto_review,
-            plan_item_id: itemByRuleDate.get(`${rule.id}|${date}`) ?? null,
+            commitment_id: commitmentFor(rule.id, date),
           })
           .select("id")
           .single();
@@ -196,9 +214,9 @@ export async function generateRecurring(
             source: "recurring",
             external_id: `${externalId}:c`,
             reviewed: rule.auto_review,
-            // Same plan item as the primary leg — the ledger counts a linked
+            // Same commitment as the primary leg — the ledger counts a linked
             // pair once (it prefers the outflow leg).
-            plan_item_id: itemByRuleDate.get(`${rule.id}|${date}`) ?? null,
+            commitment_id: commitmentFor(rule.id, date),
           });
           if (cErr) {
             // Roll back the primary so the pair is retried atomically next run.

@@ -5,28 +5,27 @@ import { Sheet } from "@/components/ui/Sheet";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Card } from "@/components/ui/Card";
+import { useMonthPlan, useCreatePlanDraft, useConfirmPlan } from "@/hooks/useMonthPlan";
 import {
-  useMonthPlan,
-  useCreatePlanDraft,
-  usePopulatePlanItems,
-  useAppendPlanItems,
-  useConfirmPlan,
-  useUpdatePlanItem,
-  useAddPlanItem,
-  useDeletePlanItem,
-} from "@/hooks/useMonthPlan";
-import { useRecurringRules } from "@/hooks/useRecurring";
-import { useAccounts, useTransactions } from "@/hooks/useSupabaseData";
-import { buildPlanDraft } from "@/lib/monthPlan";
+  useCommitments,
+  useEnsurePeriod,
+  useUpdateCommitment,
+  useAddOneOffCommitment,
+  useDeleteCommitment,
+  useEndSeries,
+} from "@/hooks/useCommitments";
 import { fmt, fmt0, monthLabel } from "@/lib/format";
-import type { MonthPlanItem, PlanItemKind } from "@/lib/types";
+import type { Commitment, CommitmentKind } from "@/lib/commitments/types";
 
-/* The month plan — expected income and committed payments, drafted from the
-   recurring rules and confirmed/edited by the user. The ledger behind
-   "Free to spend" runs on these items. */
+/* The month plan — expected income and committed payments for one period,
+   cloned forward from the live series and edited here. The ledger behind
+   "Free to spend" runs on these commitments.
 
-const KIND_ORDER: PlanItemKind[] = ["income", "bill", "debt", "cc_payment", "savings"];
-const KIND_LABEL: Record<PlanItemKind, string> = {
+   Drafting used to be thirty lines of create/populate/append across three
+   mutations. Cloning forward is idempotent, so it's now one call. */
+
+const KIND_ORDER: CommitmentKind[] = ["income", "bill", "debt", "cc_payment", "savings"];
+const KIND_LABEL: Record<CommitmentKind, string> = {
   income: "Expected income",
   bill: "Bills & subscriptions",
   debt: "Debt payments",
@@ -35,55 +34,30 @@ const KIND_LABEL: Record<PlanItemKind, string> = {
 };
 
 export function MonthPlanSheet({ month, onClose }: { month: string; onClose: () => void }) {
-  const { data, isLoading } = useMonthPlan(month);
-  const { data: rules = [], isLoading: lr } = useRecurringRules();
-  const { data: accounts = [], isLoading: la } = useAccounts();
-  const { data: transactions = [], isLoading: lt } = useTransactions();
+  const { data: planData, isLoading: lp } = useMonthPlan(month);
+  const { data: items = [], isLoading } = useCommitments(month);
   const createDraft = useCreatePlanDraft();
-  const populate = usePopulatePlanItems();
-  const append = useAppendPlanItems();
+  const ensure = useEnsurePeriod();
   const confirm = useConfirmPlan(month);
-  const update = useUpdatePlanItem(month);
-  const add = useAddPlanItem(month);
-  const del = useDeletePlanItem(month);
+  const update = useUpdateCommitment(month);
+  const add = useAddOneOffCommitment(month);
+  const del = useDeleteCommitment(month);
+  const endSeries = useEndSeries(month);
   const [adding, setAdding] = useState(false);
   const drafted = useRef(false);
 
-  // Draft the plan from the rules — but only once every source query has
-  // loaded, otherwise we'd snapshot an empty rule list and create a bare plan.
-  const sourcesReady = !lr && !la && !lt;
+  // Materialize the period from the live series. Idempotent — series already
+  // present are skipped, and the unique constraint is the backstop.
   useEffect(() => {
-    if (isLoading || !sourcesReady || drafted.current) return;
-    const draft = buildPlanDraft(rules, month, accounts, transactions);
-    if (!data?.plan) {
-      drafted.current = true;
-      createDraft.mutate({ month, draft });
-    } else if (
-      // Self-heal: an unconfirmed plan with no items (created before the rules
-      // had loaded) gets populated in place.
-      !data.plan.confirmed_at &&
-      data.items.length === 0 &&
-      draft.length > 0
-    ) {
-      drafted.current = true;
-      populate.mutate({ month, planId: data.plan.id, draft });
-    } else {
-      // Rules created after the plan was drafted: append this month's
-      // occurrences for any rule with no line in the plan — including past
-      // due dates, so the real payment has something to link to.
-      const known = new Set(data.items.map((i) => i.rule_id).filter(Boolean));
-      const missing = draft.filter((d) => !known.has(d.rule_id));
-      if (missing.length > 0) {
-        drafted.current = true;
-        append.mutate({ month, planId: data.plan.id, draft: missing });
-      }
-    }
-  }, [isLoading, sourcesReady, data, createDraft, populate, append, month, rules, accounts, transactions]);
+    if (isLoading || lp || drafted.current) return;
+    drafted.current = true;
+    ensure.mutate(month);
+    if (!planData?.plan) createDraft.mutate({ month, draft: [] });
+  }, [isLoading, lp, planData, ensure, createDraft, month]);
 
-  const plan = data?.plan ?? null;
-  const items = data?.items ?? [];
+  const plan = planData?.plan ?? null;
 
-  const included = items.filter((i) => !i.excluded);
+  const included = items.filter((i) => !i.skipped);
   const expectedIncome = included.filter((i) => i.kind === "income").reduce((s, i) => s + i.amount, 0);
   const committed = included.filter((i) => i.kind !== "income").reduce((s, i) => s - i.amount, 0);
   const baseline = expectedIncome - committed;
@@ -102,9 +76,9 @@ export function MonthPlanSheet({ month, onClose }: { month: string; onClose: () 
           month, and tap an amount to adjust it.
         </p>
 
-        {(isLoading || !sourcesReady || createDraft.isPending || populate.isPending) && (
+        {(isLoading || ensure.isPending) && (
           <p className="text-sm text-center py-4" style={{ color: "var(--color-faint)" }}>
-            Drafting from your recurring rules…
+            Drafting {monthLabel(month)}…
           </p>
         )}
 
@@ -118,9 +92,12 @@ export function MonthPlanSheet({ month, onClose }: { month: string; onClose: () 
                 <ItemRow
                   key={i.id}
                   item={i}
-                  onToggle={() => update.mutate({ id: i.id, excluded: !i.excluded })}
+                  onToggle={() => update.mutate({ id: i.id, skipped: !i.skipped })}
                   onAmount={(amount) => update.mutate({ id: i.id, amount })}
-                  onDelete={i.rule_id ? undefined : () => del.mutate(i.id)}
+                  // a one-off is deleted outright; a series is ENDED, which
+                  // stops future occurrences without erasing its history
+                  onDelete={i.series_ended ? () => del.mutate(i.id) : undefined}
+                  onEndSeries={i.series_ended ? undefined : () => endSeries.mutate(i.series_id)}
                 />
               ))}
             </Card>
@@ -139,7 +116,7 @@ export function MonthPlanSheet({ month, onClose }: { month: string; onClose: () 
         {plan && adding && (
           <AddItemForm
             onAdd={(name, kind, amount) => {
-              add.mutate({ plan_id: plan.id, name, kind, amount });
+              add.mutate({ name, kind, amount });
               setAdding(false);
             }}
             onCancel={() => setAdding(false)}
@@ -179,11 +156,13 @@ function ItemRow({
   onToggle,
   onAmount,
   onDelete,
+  onEndSeries,
 }: {
-  item: MonthPlanItem;
+  item: Commitment;
   onToggle: () => void;
   onAmount: (amount: number) => void;
   onDelete?: () => void;
+  onEndSeries?: () => void;
 }) {
   const [editing, setEditing] = useState(false);
   const [val, setVal] = useState("");
@@ -195,14 +174,16 @@ function ItemRow({
     onAmount(item.kind === "income" ? mag : -mag);
   }
 
-  const day = item.due_date ? new Date(`${item.due_date}T00:00:00`).getDate() : null;
+  // The date is a hint, so it reads as "around the 12th" rather than a promise.
+  const day = item.due_hint ? new Date(`${item.due_hint}T00:00:00`).getDate() : null;
 
   return (
-    <div className="flex items-center gap-3 px-4 py-2.5" style={{ opacity: item.excluded ? 0.45 : 1 }}>
+    <div className="flex items-center gap-3 px-4 py-2.5" style={{ opacity: item.skipped ? 0.45 : 1 }}>
       <input
         type="checkbox"
-        checked={!item.excluded}
+        checked={!item.skipped}
         onChange={onToggle}
+        aria-label={item.skipped ? `Include ${item.name} this month` : `Skip ${item.name} this month`}
         style={{ accentColor: "var(--color-primary)" }}
       />
       <div className="flex-1 min-w-0">
@@ -210,7 +191,7 @@ function ItemRow({
           {item.name}
         </p>
         <p className="text-xs" style={{ color: "var(--color-faint)" }}>
-          {day ? `Day ${day}` : "This month"}
+          {day ? `around the ${day}${ordinal(day)}` : "this month"}
           {item.variable ? " · varies" : ""}
         </p>
       </div>
@@ -238,19 +219,44 @@ function ItemRow({
         </button>
       )}
       {onDelete && (
-        <button onClick={onDelete} className="material-symbols-outlined" style={{ fontSize: 18, color: "var(--color-faint)" }}>
+        <button
+          onClick={onDelete}
+          aria-label={`Remove ${item.name}`}
+          className="material-symbols-outlined"
+          style={{ fontSize: 18, color: "var(--color-faint)" }}
+        >
           close
+        </button>
+      )}
+      {onEndSeries && (
+        <button
+          onClick={() => {
+            if (confirm(`End "${item.name}"? It won't appear in future months. To drop it for this month only, untick it instead.`)) {
+              onEndSeries();
+            }
+          }}
+          aria-label={`End ${item.name}`}
+          title="End this recurring"
+          className="material-symbols-outlined"
+          style={{ fontSize: 18, color: "var(--color-faint)" }}
+        >
+          event_busy
         </button>
       )}
     </div>
   );
 }
 
+const ordinal = (n: number) => {
+  if (n % 100 >= 11 && n % 100 <= 13) return "th";
+  return ["th", "st", "nd", "rd"][n % 10] ?? "th";
+};
+
 function AddItemForm({
   onAdd,
   onCancel,
 }: {
-  onAdd: (name: string, kind: PlanItemKind, amount: number) => void;
+  onAdd: (name: string, kind: CommitmentKind, amount: number) => void;
   onCancel: () => void;
 }) {
   const [name, setName] = useState("");
