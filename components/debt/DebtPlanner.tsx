@@ -249,7 +249,9 @@ export function DebtPlanner({
           ))}
         </Card>
         <p className="text-xs" style={{ color: "var(--color-faint)" }}>
-          Edit balances &amp; APR in account settings. Blank min uses a 2% estimate; \u201cI pay\u201d\n          overrides it in the payoff math. Escrow leaves your account but never touches the balance.
+          Edit balances &amp; APR in account settings. Blank min uses a 2% estimate;{" "}
+          “I pay” overrides it in the payoff math. Escrow leaves your account but
+          never touches the balance.
         </p>
       </section>
     </div>
@@ -269,9 +271,14 @@ function MinPaymentRow({
     escrow_amount?: number | null;
   }) => void;
 }) {
-  // Escrow only makes sense on a loan (taxes and insurance on a mortgage);
-  // a credit card never has one, so don't clutter the row with it.
-  const showEscrow = account.type === "loan";
+  // Escrow is really a mortgage thing — a HELOC, student loan or card doesn't
+  // have one, and the app has no way to tell a mortgage from any other loan.
+  // So the field appears only where it's already in use, with a way to add it
+  // on the loans that need it. Cards never offer it.
+  const [addingEscrow, setAddingEscrow] = useState(false);
+  const hasEscrow = (account.escrow_amount ?? 0) > 0;
+  const canEscrow = account.type === "loan";
+  const showEscrow = canEscrow && (hasEscrow || addingEscrow);
   const paydown = debtPayment(account, owed);
   const gross = account.monthly_payment ?? account.min_payment ?? estMinPayment(owed);
 
@@ -304,14 +311,24 @@ function MinPaymentRow({
             label="escrow"
             value={account.escrow_amount || null}
             placeholder="0"
+            autoFocus={addingEscrow && !hasEscrow}
             onSave={(v) => onSave({ escrow_amount: v ?? 0 })}
           />
         )}
+        {canEscrow && !showEscrow && (
+          <button
+            onClick={() => setAddingEscrow(true)}
+            className="text-xs font-semibold pb-2"
+            style={{ color: "var(--color-primary)" }}
+          >
+            + escrow
+          </button>
+        )}
       </div>
 
-      {showEscrow && (account.escrow_amount ?? 0) > 0 && (
+      {hasEscrow && (
         <p className="text-xs" style={{ color: "var(--color-faint)" }}>
-          {fmt0(gross)} paid, {fmt0(account.escrow_amount ?? 0)} to escrow \u2014{" "}
+          {fmt0(gross)} paid, {fmt0(account.escrow_amount ?? 0)} to escrow —{" "}
           <span style={{ color: "var(--color-text)" }}>{fmt0(paydown)}</span> against the balance
         </p>
       )}
@@ -323,11 +340,13 @@ function TermField({
   label,
   value,
   placeholder,
+  autoFocus,
   onSave,
 }: {
   label: string;
   value?: number | null;
   placeholder: string;
+  autoFocus?: boolean;
   onSave: (v: number | null) => void;
 }) {
   const [val, setVal] = useState(value != null ? String(value) : "");
@@ -341,6 +360,7 @@ function TermField({
       </span>
       <input
         inputMode="decimal"
+        autoFocus={autoFocus}
         aria-label={label}
         placeholder={placeholder}
         value={val}
