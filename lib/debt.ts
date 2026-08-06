@@ -14,3 +14,25 @@ const MIN_RATE = 0.02;
 export function minPayment(balance: number): number {
   return Math.min(balance, Math.max(MIN_FLOOR, balance * MIN_RATE));
 }
+
+/** The payment terms the payoff math needs from an account. */
+export interface PaymentTerms {
+  min_payment?: number | null;
+  monthly_payment?: number | null;
+  escrow_amount?: number | null;
+}
+
+/** How much of a monthly payment actually reduces the debt.
+ *
+ *  Two things the gross payment hides:
+ *   - paying ABOVE the minimum is the biggest lever on a payoff date, so the
+ *     actual figure wins over the contractual one;
+ *   - escrow (property taxes and insurance) leaves your account with the rest
+ *     of the payment but never touches the principal, so it comes off the top.
+ *
+ *  Falls back to the minimum, then to a 2%-of-balance estimate. */
+export function debtPayment(terms: PaymentTerms, balance: number): number {
+  const gross = terms.monthly_payment ?? terms.min_payment ?? minPayment(balance);
+  const escrow = terms.escrow_amount ?? 0;
+  return Math.max(0, gross - escrow);
+}

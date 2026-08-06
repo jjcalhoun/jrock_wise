@@ -380,12 +380,20 @@ export function useReviewTransaction() {
   });
 }
 
-/** Patch a liability account's minimum payment (Debt planner). */
+/** Patch a liability account's payment terms (Debt planner). */
 export function useSetAccountMinPayment() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async ({ id, min_payment }: { id: string; min_payment: number | null }) => {
-      const { error } = await supabase.from("accounts").update({ min_payment }).eq("id", id);
+    mutationFn: async ({
+      id,
+      ...terms
+    }: {
+      id: string;
+      min_payment?: number | null;
+      monthly_payment?: number | null;
+      escrow_amount?: number | null;
+    }) => {
+      const { error } = await supabase.from("accounts").update(terms).eq("id", id);
       if (error) throw error;
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["accounts"] }),

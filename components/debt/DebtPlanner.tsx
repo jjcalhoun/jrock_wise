@@ -9,7 +9,7 @@ import { fmt0 } from "@/lib/format";
 import { Card } from "@/components/ui/Card";
 import { Input } from "@/components/ui/Input";
 import { useSetAccountMinPayment, useUpdateSettings } from "@/hooks/useSupabaseData";
-import { minPayment as estMinPayment } from "@/lib/debt";
+import { minPayment as estMinPayment, debtPayment } from "@/lib/debt";
 
 // Recharts is heavy — load the charts only after the rest of the tab paints.
 const DebtCharts = dynamic(() => import("@/components/debt/DebtCharts"), {
@@ -78,7 +78,7 @@ export function DebtPlanner({
         name: a.name,
         balance: debtBalances[a.id] ?? 0,
         apr: a.apr,
-        minPayment: a.min_payment ?? estMinPayment(debtBalances[a.id] ?? 0),
+        minPayment: debtPayment(a, debtBalances[a.id] ?? 0),
       })),
     [liabilityAccounts, debtBalances],
   );
@@ -244,42 +244,116 @@ export function DebtPlanner({
               key={a.id}
               account={a}
               owed={debtBalances[a.id] ?? 0}
-              onSave={(v) => setMin.mutate({ id: a.id, min_payment: v })}
+              onSave={(terms) => setMin.mutate({ id: a.id, ...terms })}
             />
           ))}
         </Card>
         <p className="text-xs" style={{ color: "var(--color-faint)" }}>
-          Edit balances &amp; APR in account settings. Blank min payment uses a 2% estimate.
+          Edit balances &amp; APR in account settings. Blank min uses a 2% estimate; \u201cI pay\u201d\n          overrides it in the payoff math. Escrow leaves your account but never touches the balance.
         </p>
       </section>
     </div>
   );
 }
 
-function MinPaymentRow({ account, owed, onSave }: { account: Account; owed: number; onSave: (v: number | null) => void }) {
-  const [val, setVal] = useState(account.min_payment != null ? String(account.min_payment) : "");
-  useEffect(() => {
-    setVal(account.min_payment != null ? String(account.min_payment) : "");
-  }, [account.min_payment]);
+function MinPaymentRow({
+  account,
+  owed,
+  onSave,
+}: {
+  account: Account;
+  owed: number;
+  onSave: (terms: {
+    min_payment?: number | null;
+    monthly_payment?: number | null;
+    escrow_amount?: number | null;
+  }) => void;
+}) {
+  // Escrow only makes sense on a loan (taxes and insurance on a mortgage);
+  // a credit card never has one, so don't clutter the row with it.
+  const showEscrow = account.type === "loan";
+  const paydown = debtPayment(account, owed);
+  const gross = account.monthly_payment ?? account.min_payment ?? estMinPayment(owed);
+
   return (
-    <div className="flex items-center justify-between px-4 py-3 gap-3">
-      <div className="min-w-0">
-        <p className="text-sm font-medium truncate" style={{ color: "var(--color-text)" }}>{account.name}</p>
-        <p className="text-xs" style={{ color: "var(--color-faint)" }}>{account.apr}% APR · {fmt0(owed)}</p>
+    <div className="px-4 py-3 space-y-2">
+      <div className="flex items-baseline justify-between gap-3">
+        <p className="text-sm font-medium truncate" style={{ color: "var(--color-text)" }}>
+          {account.name}
+        </p>
+        <p className="text-xs shrink-0" style={{ color: "var(--color-faint)" }}>
+          {account.apr}% APR · {fmt0(owed)}
+        </p>
       </div>
-      <div className="flex items-center gap-1.5 shrink-0">
-        <span className="text-xs" style={{ color: "var(--color-faint)" }}>min $</span>
-        <input
-          inputMode="decimal"
+
+      <div className="flex flex-wrap items-end gap-2">
+        <TermField
+          label="min"
+          value={account.min_payment}
           placeholder={fmt0(estMinPayment(owed)).replace("$", "")}
-          value={val}
-          onChange={(e) => setVal(e.target.value)}
-          onBlur={() => onSave(val === "" ? null : parseFloat(val) || null)}
-          className="w-20 text-right px-2 py-1.5 rounded-lg text-sm font-figure outline-none border"
-          style={{ background: "var(--color-elevated)", color: "var(--color-text)", borderColor: "var(--color-hairline)" }}
+          onSave={(v) => onSave({ min_payment: v })}
         />
+        <TermField
+          label="I pay"
+          value={account.monthly_payment}
+          placeholder={account.min_payment != null ? String(account.min_payment) : "—"}
+          onSave={(v) => onSave({ monthly_payment: v })}
+        />
+        {showEscrow && (
+          <TermField
+            label="escrow"
+            value={account.escrow_amount || null}
+            placeholder="0"
+            onSave={(v) => onSave({ escrow_amount: v ?? 0 })}
+          />
+        )}
       </div>
+
+      {showEscrow && (account.escrow_amount ?? 0) > 0 && (
+        <p className="text-xs" style={{ color: "var(--color-faint)" }}>
+          {fmt0(gross)} paid, {fmt0(account.escrow_amount ?? 0)} to escrow \u2014{" "}
+          <span style={{ color: "var(--color-text)" }}>{fmt0(paydown)}</span> against the balance
+        </p>
+      )}
     </div>
+  );
+}
+
+function TermField({
+  label,
+  value,
+  placeholder,
+  onSave,
+}: {
+  label: string;
+  value?: number | null;
+  placeholder: string;
+  onSave: (v: number | null) => void;
+}) {
+  const [val, setVal] = useState(value != null ? String(value) : "");
+  useEffect(() => {
+    setVal(value != null ? String(value) : "");
+  }, [value]);
+  return (
+    <label className="flex flex-col gap-1">
+      <span className="text-[10px] uppercase tracking-wide" style={{ color: "var(--color-faint)" }}>
+        {label}
+      </span>
+      <input
+        inputMode="decimal"
+        aria-label={label}
+        placeholder={placeholder}
+        value={val}
+        onChange={(e) => setVal(e.target.value)}
+        onBlur={() => onSave(val === "" ? null : parseFloat(val) || null)}
+        className="w-20 text-right px-2 py-1.5 rounded-lg text-sm font-figure outline-none border"
+        style={{
+          background: "var(--color-elevated)",
+          color: "var(--color-text)",
+          borderColor: "var(--color-hairline)",
+        }}
+      />
+    </label>
   );
 }
 
