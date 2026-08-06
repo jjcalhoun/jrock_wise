@@ -13,15 +13,20 @@ import {
   useAddOneOffCommitment,
   useDeleteCommitment,
   useEndSeries,
+  useConfirmCommitment,
+  useUnconfirmCommitment,
 } from "@/hooks/useCommitments";
 import { useRecurringRules } from "@/hooks/useRecurring";
-import { useTransactions } from "@/hooks/useSupabaseData";
+import { useTransactions, useAccounts } from "@/hooks/useSupabaseData";
+import { useSimplefinMappings } from "@/hooks/useSimplefin";
 import { SeriesEditor } from "@/components/plan/SeriesEditor";
 import { PlanSuggestions } from "@/components/plan/PlanSuggestions";
 import { fmt, fmt0, monthLabel } from "@/lib/format";
 import type { Commitment, CommitmentKind } from "@/lib/commitments/types";
 import type { Transaction } from "@/lib/types";
 import { settlementFor, type Settlement } from "@/lib/commitments/restore";
+import { isAwaitingConfirmation } from "@/lib/commitments/due";
+import { todayISO } from "@/lib/dates";
 
 /* The month plan — expected income and committed payments for one period,
    cloned forward from the live series and edited here. The ledger behind
@@ -55,6 +60,22 @@ export function MonthPlanSheet({ month, onClose }: { month: string; onClose: () 
   const [editingSeries, setEditingSeries] = useState<string | null>(null);
   const { data: rules = [] } = useRecurringRules();
   const { data: transactions = [] } = useTransactions();
+  const { data: accounts = [] } = useAccounts();
+  const { data: mappings = [] } = useSimplefinMappings();
+  const confirmPaid = useConfirmCommitment(month);
+  const undoPaid = useUnconfirmCommitment(month);
+
+  // On a manual account there is no feed, so an expected payment stays expected
+  // until it's confirmed — the app no longer asserts it happened on schedule.
+  const syncedIds = useMemo(
+    () => new Set(mappings.map((m) => m.account_id)),
+    [mappings],
+  );
+  const accountById = useMemo(
+    () => new Map(accounts.map((a) => [a.id, a])),
+    [accounts],
+  );
+  const today = todayISO();
 
   // What settled each line: a payment linked directly to it, or one that
   // covers it as part of a lump. Without this a paid week looked exactly like
@@ -112,6 +133,17 @@ export function MonthPlanSheet({ month, onClose }: { month: string; onClose: () 
                   key={i.id}
                   item={i}
                   settled={settledBy(i)}
+                  awaiting={isAwaitingConfirmation(
+                    i,
+                    i.account_id ? accountById.get(i.account_id) : undefined,
+                    !!i.account_id && syncedIds.has(i.account_id),
+                    settledBy(i),
+                    today,
+                  )}
+                  onConfirm={(amount) =>
+                    confirmPaid.mutate({ commitment: i, amount, date: today })
+                  }
+                  onUndo={() => undoPaid.mutate(i.id)}
                   onToggle={() => update.mutate({ id: i.id, skipped: !i.skipped })}
                   onAmount={(amount) => update.mutate({ id: i.id, amount })}
                   // a one-off is deleted outright; a series is ENDED, which
@@ -187,6 +219,9 @@ export function MonthPlanSheet({ month, onClose }: { month: string; onClose: () 
 function ItemRow({
   item,
   settled,
+  awaiting,
+  onConfirm,
+  onUndo,
   onToggle,
   onAmount,
   onDelete,
@@ -195,6 +230,9 @@ function ItemRow({
 }: {
   item: Commitment;
   settled: Settlement | null;
+  awaiting: boolean;
+  onConfirm: (amount: number) => void;
+  onUndo: () => void;
   onToggle: () => void;
   onAmount: (amount: number) => void;
   onDelete?: () => void;
@@ -203,12 +241,18 @@ function ItemRow({
 }) {
   const [editing, setEditing] = useState(false);
   const [val, setVal] = useState("");
+  // A variable bill can't be confirmed at its estimate — the point of asking is
+  // that the real figure differs. Confirming reuses the same inline field.
+  const [confirmMode, setConfirmMode] = useState(false);
 
   function commit() {
     const mag = Math.abs(parseFloat(val));
+    const wasConfirming = confirmMode;
     setEditing(false);
+    setConfirmMode(false);
     if (isNaN(mag) || mag === 0) return;
-    onAmount(item.kind === "income" ? mag : -mag);
+    if (wasConfirming) onConfirm(mag);
+    else onAmount(item.kind === "income" ? mag : -mag);
   }
 
   // The date is a hint, so it reads as "around the 12th" rather than a promise.
@@ -235,14 +279,25 @@ function ItemRow({
             {item.name}
           </p>
         )}
-        <p className="text-xs" style={{ color: settled ? "var(--color-positive)" : "var(--color-faint)" }}>
+        <p
+          className="text-xs"
+          style={{
+            color: settled
+              ? "var(--color-positive)"
+              : awaiting
+                ? "var(--color-primary)"
+                : "var(--color-faint)",
+          }}
+        >
           {settled
             ? settled.viaCover
               ? `covered by ${payerName(settled.txn)}`
               : `paid ${fmt(Math.abs(settled.txn.amount))}`
-            : day
-              ? `around the ${day}${ordinal(day)}`
-              : "this month"}
+            : awaiting
+              ? "did this go through?"
+              : day
+                ? `around the ${day}${ordinal(day)}`
+                : "this month"}
           {!settled && item.variable ? " · varies" : ""}
         </p>
       </div>
@@ -267,6 +322,34 @@ function ItemRow({
           style={{ color: item.kind === "income" ? "var(--color-positive)" : "var(--color-text)" }}
         >
           {fmt(item.amount)}
+        </button>
+      )}
+      {awaiting && (
+        <button
+          onClick={() => {
+            if (item.variable) {
+              setVal(String(Math.abs(item.amount)));
+              setConfirmMode(true);
+              setEditing(true);
+            } else {
+              onConfirm(Math.abs(item.amount));
+            }
+          }}
+          className="text-xs font-semibold px-2 py-1 rounded-md shrink-0"
+          style={{ background: "var(--color-primary)", color: "#fff" }}
+        >
+          {item.variable ? "Confirm…" : "Mark paid"}
+        </button>
+      )}
+      {settled && !settled.viaCover && settled.txn.source === "manual" && (
+        <button
+          onClick={onUndo}
+          aria-label={`Undo marking ${item.name} paid`}
+          title="Undo"
+          className="material-symbols-outlined shrink-0"
+          style={{ fontSize: 18, color: "var(--color-faint)" }}
+        >
+          undo
         </button>
       )}
       {onDelete && (

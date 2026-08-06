@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/client";
 import type { Commitment } from "@/lib/commitments/types";
 import { cloneForward, latestPerSeries } from "@/lib/commitments/clone";
 import { linkTransactionToCommitment } from "@/lib/commitments/link";
+import { confirmCommitment, unconfirmCommitment } from "@/lib/commitments/confirm";
 
 const supabase = createClient();
 
@@ -198,6 +199,44 @@ export function useEndSeries(period: string) {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["commitments", period] });
       qc.invalidateQueries({ queryKey: ["commitments_window"] });
+    },
+  });
+}
+
+/** Say a manual-account commitment actually happened, which is what creates
+ *  the transaction. The amount is passed in rather than assumed: the reason to
+ *  ask at all is that the app can't know what landed. */
+export function useConfirmCommitment(period: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      commitment,
+      amount,
+      date,
+    }: {
+      commitment: Commitment;
+      amount: number;
+      date: string;
+    }) => confirmCommitment(supabase, commitment, amount, date),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["commitments", period] });
+      qc.invalidateQueries({ queryKey: ["commitments_window"] });
+      qc.invalidateQueries({ queryKey: ["transactions"] });
+      qc.invalidateQueries({ queryKey: ["account_balances"] });
+    },
+  });
+}
+
+/** Undo a confirmation — removes only what this app posted. */
+export function useUnconfirmCommitment(period: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (commitmentId: string) => unconfirmCommitment(supabase, commitmentId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["commitments", period] });
+      qc.invalidateQueries({ queryKey: ["commitments_window"] });
+      qc.invalidateQueries({ queryKey: ["transactions"] });
+      qc.invalidateQueries({ queryKey: ["account_balances"] });
     },
   });
 }
