@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { rankCommitments, suggestCommitment } from "./match";
+import { rankCommitments, suggestCommitment, orderForDisplay } from "./match";
 import type { Commitment } from "./types";
 import type { Transaction } from "@/lib/types";
 
@@ -167,5 +167,38 @@ describe("suggestCommitment", () => {
       { linked: [t({ id: "other", amount: -15.99, date: "2026-07-10", commitment_id: "a" })] },
     );
     expect(s).toBeNull();
+  });
+});
+
+describe("orderForDisplay", () => {
+  it("shows candidates in date order, not score order", () => {
+    // the best match is late in the month; it must NOT jump to the front
+    const items = [
+      c({ id: "late", name: "YouTube Premium", amount: -15.99, due_hint: "2026-08-25" }),
+      c({ id: "early", name: "Mortgage Payment", amount: -536, due_hint: "2026-08-01" }),
+      c({ id: "mid", name: "Duke Energy", amount: -61.96, due_hint: "2026-08-18" }),
+    ];
+    const txn = t({ amount: -15.99, date: "2026-08-25", merchant: "YouTube Premium" });
+    expect(rankCommitments(txn, items)[0].commitment.id).toBe("late"); // best match
+    expect(orderForDisplay(rankCommitments(txn, items)).map((x) => x.commitment.id))
+      .toEqual(["early", "mid", "late"]); // but displayed chronologically
+  });
+
+  it("keeps repeated occurrences in the order they happen", () => {
+    const items = ["2026-08-28", "2026-08-07", "2026-08-21", "2026-08-14"].map((d, i) =>
+      c({ id: `cs${i}`, name: "Child support", amount: -206, due_hint: d }),
+    );
+    const ranked = rankCommitments(t({ amount: -206, date: "2026-08-21", merchant: "Child support" }), items);
+    expect(orderForDisplay(ranked).map((x) => x.commitment.due_hint))
+      .toEqual(["2026-08-07", "2026-08-14", "2026-08-21", "2026-08-28"]);
+  });
+
+  it("puts dateless lines last", () => {
+    const items = [
+      c({ id: "none", name: "Dentist", amount: -220 }),
+      c({ id: "dated", name: "Rent", amount: -1450, due_hint: "2026-08-01" }),
+    ];
+    const ranked = rankCommitments(t({ amount: -220, date: "2026-08-10", merchant: "Dentist" }), items);
+    expect(orderForDisplay(ranked).map((x) => x.commitment.id)).toEqual(["dated", "none"]);
   });
 });

@@ -16,7 +16,7 @@ import {
 import { CategoryGrid } from "@/components/transactions/CategoryGrid";
 import { useUpsertRecurringRule, useRecurringRules } from "@/hooks/useRecurring";
 import { useCommitmentWindow, useLinkCommitment } from "@/hooks/useCommitments";
-import { rankCommitments, suggestCommitment } from "@/lib/commitments/match";
+import { rankCommitments, suggestCommitment, orderForDisplay } from "@/lib/commitments/match";
 import { periodWindow } from "@/lib/commitments/period";
 import { monthKey } from "@/lib/aggregations";
 import { RecurringManager } from "@/components/settings/RecurringManager";
@@ -103,8 +103,9 @@ export function TransactionEditor({ txn, onClose, inline }: Props) {
   // A window of periods, not just this transaction's month — the due date is a
   // hint, so a payment may fulfill a neighbouring month's commitment.
   const { data: windowItems = [] } = useCommitmentWindow(periodWindow(txnMonth));
+  // Scored for pre-selection, shown in date order (see orderForDisplay).
   const candidates = useMemo(
-    () => rankCommitments(txn, windowItems, { linked: allTxns }),
+    () => orderForDisplay(rankCommitments(txn, windowItems, { linked: allTxns })),
     [txn, windowItems, allTxns],
   );
   const suggested = useMemo(

@@ -10,7 +10,7 @@ import {
 } from "@/hooks/useSupabaseData";
 import { useUpsertRecurringRule, useRecurringRules } from "@/hooks/useRecurring";
 import { useCommitmentWindow, useLinkCommitment } from "@/hooks/useCommitments";
-import { rankCommitments, suggestCommitment } from "@/lib/commitments/match";
+import { rankCommitments, suggestCommitment, orderForDisplay } from "@/lib/commitments/match";
 import { periodWindow } from "@/lib/commitments/period";
 import { monthKey } from "@/lib/aggregations";
 import { CategoryGrid } from "@/components/transactions/CategoryGrid";
@@ -76,8 +76,10 @@ export function ReviewFlow({ onClose }: { onClose: () => void }) {
   // month that expected it.
   const txnMonth = txn ? monthKey(txn.date) : "";
   const { data: windowItems = [] } = useCommitmentWindow(txnMonth ? periodWindow(txnMonth) : []);
+  // Scored for pre-selection, but shown in DATE order — the list doubles as a
+  // run-down of what's still coming, and repeats tick off in sequence.
   const candidates = useMemo(
-    () => (txn ? rankCommitments(txn, windowItems, { linked: transactions }) : []),
+    () => (txn ? orderForDisplay(rankCommitments(txn, windowItems, { linked: transactions })) : []),
     [txn, windowItems, transactions],
   );
   const suggested = useMemo(

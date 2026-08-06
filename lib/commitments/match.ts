@@ -116,6 +116,21 @@ export function rankCommitments(
     });
 }
 
+/** Display order for the picker: chronological, dateless lines last.
+ *
+ *  Scoring decides what gets PRE-SELECTED and what shows as claimed; it
+ *  deliberately does not decide the order. A date-ordered list doubles as a
+ *  run-down of what's still coming this month, and repeated occurrences (four
+ *  child-support payments, say) get ticked off in the order they happen.
+ *  Sorting by score would scramble both. */
+export function orderForDisplay(candidates: Candidate[]): Candidate[] {
+  return [...candidates].sort((a, b) => {
+    const da = a.commitment.due_hint ?? "9999-99-99";
+    const db = b.commitment.due_hint ?? "9999-99-99";
+    return da.localeCompare(db) || a.commitment.name.localeCompare(b.commitment.name);
+  });
+}
+
 /** The candidate to pre-select in review. Deliberately conservative: it only
  *  suggests when the match is good AND clearly better than the runner-up, so
  *  an ambiguous pair is left for the user rather than nudged. */
