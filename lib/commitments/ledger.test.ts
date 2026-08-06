@@ -167,4 +167,26 @@ describe("commitments ledger", () => {
     expect(led.expectedIncome).toBe(4000);
     expect(led.commitmentsPlanned).toBe(1450);
   });
+
+  it("escrow charged to a loan account reaches categories but not free-to-spend", () => {
+    // the mortgage: one transfer out of checking, plus an escrow line posted on
+    // the loan. The cash already left via the transfer, so counting the escrow
+    // split again would double-charge the budget.
+    const led = ledger(
+      [c({ id: "m", kind: "debt", amount: -583.57, transfer_account_id: "acc-loan" })],
+      [
+        t({ id: "out", amount: -583.57, date: "2026-07-01", type: "transfer", commitment_id: "m" }),
+        t({ id: "in", amount: 583.57, date: "2026-07-01", type: "transfer", account_id: "acc-loan", commitment_id: "m" }),
+        t({
+          id: "escrow", amount: -230.91, date: "2026-07-01", account_id: "acc-loan",
+          splits: [{ id: "s", user_id: "u", transaction_id: "escrow", category_id: "cat-housing", bucket: "needs", amount: -230.91, created_at: "" }],
+        }),
+        t({ id: "int", amount: -180.64, date: "2026-07-01", account_id: "acc-loan", source: "interest" }),
+      ],
+      "2026-07",
+      ctx,
+    );
+    expect(led.discretionary).toBe(0); // not double-charged
+    expect(led.commitmentsEffective).toBeCloseTo(583.57, 2); // the real outflow, once
+  });
 });

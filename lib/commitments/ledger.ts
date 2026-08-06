@@ -150,8 +150,14 @@ export function ledger(
       }
       continue;
     }
-    // expense / refund via splits — cash view skips credit-card purchases
-    if (ctx.creditAccountIds.has(t.account_id)) continue;
+    // Expense / refund via splits. The cash view skips anything charged to a
+    // LIABILITY account, because no cash left your pocket when it posted:
+    //   - credit-card purchases are carried by the monthly card payment;
+    //   - interest and escrow on a loan are consequences of a payment that
+    //     already counted, so counting their splits again would double-charge
+    //     free-to-spend. They still reach the category rollup, which is what
+    //     puts mortgage escrow in Housing without inflating spending.
+    if (ctx.creditAccountIds.has(t.account_id) || ctx.loanAccountIds.has(t.account_id)) continue;
     for (const split of t.splits ?? []) discretionary += -split.amount;
   }
 
