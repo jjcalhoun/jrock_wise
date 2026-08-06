@@ -82,10 +82,12 @@ describe("generateRecurring", () => {
     expect(await rows()).toHaveLength(0);
   });
 
-  it("links what it posts to the matching commitment", async () => {
+  it("leaves a series alone once the plan owns it", async () => {
+    // a commitment means the occurrence is confirmed by hand — generating here
+    // too would post the same payment twice
     await addDailyRule();
     await db.from("commitments").insert({
-      id: "C1",
+      id: "OWNED",
       user_id: "u",
       series_id: RULE,
       period: today.slice(0, 7),
@@ -96,14 +98,18 @@ describe("generateRecurring", () => {
       due_hint: today,
     });
     await generateRecurring(db, "u");
-    const { data } = await db
-      .from("transactions")
-      .select("*")
-      .eq("user_id", "u")
-      .eq("date", today);
-    const posted = (data ?? []) as { commitment_id: string | null }[];
-    expect(posted.length).toBeGreaterThan(0);
-    // unlinked generated income is exactly what showed up as phantom "extra income"
-    expect(posted.every((r) => r.commitment_id === "C1")).toBe(true);
+    expect(await rows()).toHaveLength(0);
+  });
+
+  it("still advances the watermark for a plan-owned series", async () => {
+    await addDailyRule();
+    await db.from("commitments").insert({
+      id: "OWNED2", user_id: "u", series_id: RULE, period: today.slice(0, 7),
+      seq: 0, name: "P", kind: "income", amount: 420, due_hint: today,
+    });
+    await generateRecurring(db, "u");
+    const { data: rule } = await db
+      .from("recurring_rules").select("last_generated").eq("id", RULE).maybeSingle();
+    expect((rule as { last_generated: string }).last_generated).toBe(today);
   });
 });

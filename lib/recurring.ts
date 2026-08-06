@@ -89,34 +89,15 @@ export async function generateRecurring(
   let inserted = 0;
   const errors: string[] = [];
 
-  // Commitments drafted from these rules — generated rows link to them so the
-  // ledger marks the commitment paid instead of double-counting. A rule's id is
-  // its series_id (the phase-1 backfill reused it), and lookup is by PERIOD
-  // rather than exact date: the due date is a hint, so a generated row on the
-  // 6th still fulfills a commitment hinted at the 5th.
+  // A series that has commitments is owned by the plan — its occurrences are
+  // confirmed by hand, so generation leaves it entirely alone. What remains
+  // here are the accounting-only series with no plan line of their own, such as
+  // the escrow charge posted against a mortgage.
   const { data: commitments } = await supabase
     .from("commitments")
-    .select("id, series_id, period, due_hint, seq")
+    .select("series_id")
     .eq("user_id", userId);
-  const byPeriod = new Map<string, { id: string; due_hint: string | null; seq: number }[]>();
-  for (const c of commitments ?? []) {
-    const key = `${c.series_id}|${c.period}`;
-    const arr = byPeriod.get(key);
-    const row = { id: c.id as string, due_hint: (c.due_hint as string) ?? null, seq: c.seq as number };
-    if (arr) arr.push(row);
-    else byPeriod.set(key, [row]);
-  }
-  /** The occurrence in this rule's series closest to `date` within its period. */
-  const commitmentFor = (ruleId: string, date: string): string | null => {
-    const rows = byPeriod.get(`${ruleId}|${date.slice(0, 7)}`);
-    if (!rows || rows.length === 0) return null;
-    const scored = [...rows].sort((a, b) => {
-      const da = a.due_hint ? Math.abs(Date.parse(a.due_hint) - Date.parse(date)) : Infinity;
-      const db = b.due_hint ? Math.abs(Date.parse(b.due_hint) - Date.parse(date)) : Infinity;
-      return da - db || a.seq - b.seq;
-    });
-    return scored[0].id;
-  };
+  const planOwned = new Set((commitments ?? []).map((c) => c.series_id as string));
 
   for (const rule of (rules ?? []) as RecurringRule[]) {
     // SYNCED accounts get NO generated rows at all: the real transactions
@@ -124,6 +105,17 @@ export async function generateRecurring(
     // expectation (the feed row links to its plan item in review). Generating
     // here would duplicate every paycheck/charge. Just advance the watermark.
     if (synced.has(rule.account_id)) {
+      await supabase
+        .from("recurring_rules")
+        .update({ last_generated: today })
+        .eq("id", rule.id)
+        .eq("user_id", userId);
+      continue;
+    }
+    // A series with commitments is owned by the plan: those occurrences are
+    // confirmed by hand, because on a manual account nothing else knows whether
+    // the payment happened. Generating here too would post it twice.
+    if (planOwned.has(rule.id)) {
       await supabase
         .from("recurring_rules")
         .update({ last_generated: today })
@@ -182,7 +174,6 @@ export async function generateRecurring(
             source: "recurring",
             external_id: externalId,
             reviewed: rule.auto_review,
-            commitment_id: commitmentFor(rule.id, date),
           })
           .select("id")
           .single();
@@ -218,9 +209,6 @@ export async function generateRecurring(
             source: "recurring",
             external_id: `${externalId}:c`,
             reviewed: rule.auto_review,
-            // Same commitment as the primary leg — the ledger counts a linked
-            // pair once (it prefers the outflow leg).
-            commitment_id: commitmentFor(rule.id, date),
           });
           if (cErr) {
             // Roll back the primary so the pair is retried atomically next run.
