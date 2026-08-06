@@ -46,3 +46,15 @@ export type CommitmentSchedule = Pick<
   Commitment,
   "frequency" | "day_of_month" | "day_of_month_2" | "weekday" | "interval" | "due_hint"
 >;
+
+/** Kinds that describe money moving to another account you own. Such a
+ *  commitment already knows its destination, so matching a payment to one is
+ *  enough to say the payment is a transfer. */
+const TRANSFER_KINDS = new Set<CommitmentKind>(["debt", "cc_payment", "savings"]);
+
+export function commitmentTransferTarget(
+  c: Pick<Commitment, "kind" | "transfer_account_id"> | null | undefined,
+): string | null {
+  if (!c || !c.transfer_account_id) return null;
+  return TRANSFER_KINDS.has(c.kind) ? c.transfer_account_id : null;
+}

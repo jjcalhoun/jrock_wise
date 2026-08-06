@@ -12,6 +12,7 @@ import { useUpsertRecurringRule, useRecurringRules } from "@/hooks/useRecurring"
 import { useCommitmentWindow, useLinkCommitment } from "@/hooks/useCommitments";
 import { rankCommitments, suggestCommitment, orderForDisplay } from "@/lib/commitments/match";
 import { periodWindow } from "@/lib/commitments/period";
+import { commitmentTransferTarget } from "@/lib/commitments/types";
 import { monthKey } from "@/lib/aggregations";
 import { CategoryGrid } from "@/components/transactions/CategoryGrid";
 import { Button } from "@/components/ui/Button";
@@ -121,6 +122,19 @@ export function ReviewFlow({ onClose }: { onClose: () => void }) {
     setRecurFreq("monthly");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [txn]);
+
+  // Picking a debt / card / savings commitment IS saying this is a transfer —
+  // the commitment already knows where the money goes. Reflect that in the
+  // form straight away, so the type shown is the type that will be saved.
+  useEffect(() => {
+    if (!commitmentId) return;
+    const picked = windowItems.find((i) => i.id === commitmentId);
+    const dest = commitmentTransferTarget(picked);
+    if (dest) {
+      setType("transfer");
+      setTransferAccountId(dest);
+    }
+  }, [commitmentId, windowItems]);
 
   // Pre-select the suggestion — but it is only ever a suggestion. Nothing
   // links itself; saving is what commits it.

@@ -18,6 +18,7 @@ import { useUpsertRecurringRule, useRecurringRules } from "@/hooks/useRecurring"
 import { useCommitmentWindow, useLinkCommitment } from "@/hooks/useCommitments";
 import { rankCommitments, suggestCommitment, orderForDisplay } from "@/lib/commitments/match";
 import { periodWindow } from "@/lib/commitments/period";
+import { commitmentTransferTarget } from "@/lib/commitments/types";
 import { monthKey } from "@/lib/aggregations";
 import { RecurringManager } from "@/components/settings/RecurringManager";
 import { isInterestPaid } from "@/lib/interestPaid";
@@ -120,6 +121,13 @@ export function TransactionEditor({ txn, onClose, inline }: Props) {
   const pickCommitment = (id: string) => {
     touchedPlan.current = true;
     setCommitmentId((cur) => (cur === id ? null : id));
+    // A debt / card / savings commitment already knows its destination, so
+    // choosing one is enough to say this payment is a transfer.
+    const dest = commitmentTransferTarget(windowItems.find((i) => i.id === id));
+    if (dest && commitmentId !== id) {
+      setType("transfer");
+      setTransferAccountId(dest);
+    }
   };
 
   const canRecur = type !== "refund" && !isGenerated; // rules cover expense / income / transfer

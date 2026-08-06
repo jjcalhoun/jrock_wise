@@ -1,4 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { resolveTransfer } from "@/lib/transfers";
+import { commitmentTransferTarget } from "./types";
+import type { Commitment } from "./types";
 
 /* Linking a transaction to the commitment it fulfills.
  *
@@ -16,6 +19,8 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 export interface LinkResult {
   /** transactions unlinked and returned to review */
   released: string[];
+  /** the transaction was converted to a transfer by the commitment it matched */
+  becameTransfer: boolean;
 }
 
 export async function linkTransactionToCommitment(
@@ -53,5 +58,37 @@ export async function linkTransactionToCommitment(
     .eq("id", txnId);
   if (error) throw error;
 
-  return { released };
+  const becameTransfer = commitmentId ? await applyCommitmentShape(supabase, txnId, commitmentId) : false;
+  return { released, becameTransfer };
+}
+
+/** A debt, card or savings commitment already knows where the money goes, so
+ *  matching a payment to one is enough to say it's a transfer — no need to also
+ *  set the type by hand. That step being separate is exactly how loan payments
+ *  ended up recorded as expenses, paying nothing down.
+ *
+ *  Returns true when the transaction was converted. */
+async function applyCommitmentShape(
+  supabase: SupabaseClient,
+  txnId: string,
+  commitmentId: string,
+): Promise<boolean> {
+  const { data: c } = await supabase
+    .from("commitments")
+    .select("kind, transfer_account_id")
+    .eq("id", commitmentId)
+    .maybeSingle();
+  const dest = commitmentTransferTarget(c as Pick<Commitment, "kind" | "transfer_account_id"> | null);
+  if (!dest) return false;
+
+  const { data: txn } = await supabase
+    .from("transactions")
+    .select("type, transfer_account_id")
+    .eq("id", txnId)
+    .maybeSingle();
+  // Already the right shape (including the far leg of an existing pair).
+  if (txn?.type === "transfer" && txn?.transfer_account_id) return false;
+
+  await resolveTransfer(supabase, txnId, dest);
+  return true;
 }

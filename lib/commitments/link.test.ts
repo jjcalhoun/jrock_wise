@@ -80,4 +80,72 @@ describe("linkTransactionToCommitment", () => {
     const rows = await rowsOf(["OTHER"]);
     expect(rows.OTHER.reviewed).toBe(false);
   });
+
+  describe("a debt/card commitment makes the payment a transfer", () => {
+    beforeEach(async () => {
+      await db.from("commitments").delete().eq("user_id", "test");
+      await db.from("accounts").delete().eq("user_id", "test");
+      await db.from("commitments").insert([
+        { id: "C-DEBT", user_id: "test", kind: "debt", transfer_account_id: "LOAN", period: "2026-08" },
+        { id: "C-BILL", user_id: "test", kind: "bill", transfer_account_id: null, period: "2026-08" },
+      ]);
+    });
+
+    it("converts the payment and posts the leg the loan needs", async () => {
+      // a mortgage payment arriving from the synced bank as a plain expense
+      await db.from("transactions").insert({
+        id: "PAY", user_id: "test", account_id: "CHK", amount: -583.57,
+        date: "2026-08-01", type: "expense", reviewed: false, merchant: "CITIZENS",
+      });
+      const { becameTransfer } = await linkTransactionToCommitment(db, "PAY", "C-DEBT");
+      expect(becameTransfer).toBe(true);
+
+      const { data: pay } = await db.from("transactions").select("*").eq("id", "PAY").maybeSingle();
+      expect(pay.type).toBe("transfer");
+      expect(pay.transfer_account_id).toBe("LOAN");
+
+      // the far leg exists, so the loan balance actually moves
+      const { data } = await db.from("transactions").select("*").eq("account_id", "LOAN");
+      const legs = (data ?? []) as Record<string, unknown>[];
+      expect(legs).toHaveLength(1);
+      expect(Number(legs[0].amount)).toBeCloseTo(583.57, 2);
+      expect(legs[0].transfer_group_id).toBe(pay.transfer_group_id);
+    });
+
+    it("leaves an ordinary bill alone", async () => {
+      await db.from("transactions").insert({
+        id: "UTIL", user_id: "test", account_id: "CHK", amount: -61.96,
+        date: "2026-08-18", type: "expense", reviewed: false,
+      });
+      const { becameTransfer } = await linkTransactionToCommitment(db, "UTIL", "C-BILL");
+      expect(becameTransfer).toBe(false);
+      const { data: u } = await db.from("transactions").select("*").eq("id", "UTIL").maybeSingle();
+      expect(u.type).toBe("expense");
+    });
+
+    it("pairs with an existing counterpart instead of posting a second one", async () => {
+      await db.from("transactions").insert([
+        { id: "OUT2", user_id: "test", account_id: "CHK", amount: -300, date: "2026-08-08", type: "expense", reviewed: false },
+        { id: "IN2", user_id: "test", account_id: "LOAN", amount: 300, date: "2026-08-08", type: "expense", reviewed: false },
+      ]);
+      await linkTransactionToCommitment(db, "OUT2", "C-DEBT");
+      const { data } = await db.from("transactions").select("*").eq("account_id", "LOAN");
+      const legs = (data ?? []) as Record<string, unknown>[];
+      expect(legs).toHaveLength(1); // paired, not duplicated
+      expect(legs[0].id).toBe("IN2");
+      expect(legs[0].type).toBe("transfer");
+    });
+
+    it("is idempotent — re-linking doesn't post another leg", async () => {
+      await db.from("transactions").insert({
+        id: "PAY3", user_id: "test", account_id: "CHK", amount: -240,
+        date: "2026-08-23", type: "expense", reviewed: false,
+      });
+      await linkTransactionToCommitment(db, "PAY3", "C-DEBT");
+      await linkTransactionToCommitment(db, "PAY3", "C-DEBT");
+      const { data } = await db.from("transactions").select("*").eq("account_id", "LOAN");
+      const legs = (data ?? []) as Record<string, unknown>[];
+      expect(legs).toHaveLength(1);
+    });
+  });
 });
