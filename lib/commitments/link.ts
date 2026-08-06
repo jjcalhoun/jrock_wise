@@ -21,13 +21,28 @@ export interface LinkResult {
   released: string[];
   /** the transaction was converted to a transfer by the commitment it matched */
   becameTransfer: boolean;
+  /** occurrences settled by this same payment, beyond the primary one */
+  covered: string[];
 }
 
+/** Link a transaction to the occurrence(s) it fulfills.
+ *
+ *  The FIRST id is the primary — it takes `commitment_id` and carries the whole
+ *  amount. Any others are marked `covered_by` this transaction: they read as
+ *  settled but count zero, so one lump payment for four weeks of child support
+ *  moves the cash exactly once. */
 export async function linkTransactionToCommitment(
   supabase: SupabaseClient,
   txnId: string,
-  commitmentId: string | null,
+  commitmentIdOrIds: string | string[] | null,
 ): Promise<LinkResult> {
+  const ids = commitmentIdOrIds == null
+    ? []
+    : Array.isArray(commitmentIdOrIds)
+      ? commitmentIdOrIds
+      : [commitmentIdOrIds];
+  const commitmentId = ids[0] ?? null;
+  const alsoCovered = ids.slice(1);
   const released: string[] = [];
 
   if (commitmentId) {
@@ -58,8 +73,23 @@ export async function linkTransactionToCommitment(
     .eq("id", txnId);
   if (error) throw error;
 
+  // Rewrite this payment's coverage: clear what it used to cover, then mark
+  // the current set. Doing both makes deselecting work.
+  const { error: clrErr } = await supabase
+    .from("commitments")
+    .update({ covered_by: null })
+    .eq("covered_by", txnId);
+  if (clrErr) throw clrErr;
+  if (alsoCovered.length > 0) {
+    const { error: covErr } = await supabase
+      .from("commitments")
+      .update({ covered_by: txnId })
+      .in("id", alsoCovered);
+    if (covErr) throw covErr;
+  }
+
   const becameTransfer = commitmentId ? await applyCommitmentShape(supabase, txnId, commitmentId) : false;
-  return { released, becameTransfer };
+  return { released, becameTransfer, covered: alsoCovered };
 }
 
 /** A debt, card or savings commitment already knows where the money goes, so

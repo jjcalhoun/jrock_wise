@@ -115,18 +115,21 @@ export function TransactionEditor({ txn, onClose, inline }: Props) {
     () => (txn.commitment_id ? null : suggestCommitment(txn, windowItems, { linked: allTxns })),
     [txn, windowItems, allTxns],
   );
-  const [commitmentId, setCommitmentId] = useState<string | null>(txn.commitment_id ?? null);
+  // Ordered: first is the primary; the rest are covered by this same payment.
+  const [commitmentIds, setCommitmentIds] = useState<string[]>(
+    txn.commitment_id ? [txn.commitment_id] : [],
+  );
   const touchedPlan = useRef(false);
   useEffect(() => {
-    if (!touchedPlan.current && !txn.commitment_id && suggested) setCommitmentId(suggested.id);
+    if (!touchedPlan.current && !txn.commitment_id && suggested) setCommitmentIds([suggested.id]);
   }, [suggested, txn.commitment_id]);
   const pickCommitment = (id: string) => {
     touchedPlan.current = true;
-    setCommitmentId((cur) => (cur === id ? null : id));
+    setCommitmentIds((cur) => (cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id]));
     // A debt / card / savings commitment already knows its destination, so
     // choosing one is enough to say this payment is a transfer.
     const dest = commitmentTransferTarget(windowItems.find((i) => i.id === id));
-    if (dest && commitmentId !== id) {
+    if (dest && !commitmentIds.includes(id)) {
       setType("transfer");
       setTransferAccountId(dest);
     }
@@ -207,14 +210,14 @@ export function TransactionEditor({ txn, onClose, inline }: Props) {
             active: true,
             // Link this transaction to the occurrence it represents (unless a
             // planned payment was picked explicitly below).
-            ...(commitmentId === null ? { _sourceTxn: { id: txn.id, date } } : {}),
+            ...(commitmentIds.length === 0 ? { _sourceTxn: { id: txn.id, date } } : {}),
           });
         }
         // matched + still checked → already covered, nothing to create.
       }
       // Planned-payment link changed → write it (None unlinks).
-      if (commitmentId !== (txn.commitment_id ?? null)) {
-        await linkTxn.mutateAsync({ txnId: txn.id, commitmentId });
+      if (commitmentIds[0] !== (txn.commitment_id ?? null) || commitmentIds.length > 1) {
+        await linkTxn.mutateAsync({ txnId: txn.id, commitmentId: commitmentIds });
       }
       onClose();
     } catch (e) {
@@ -434,20 +437,20 @@ export function TransactionEditor({ txn, onClose, inline }: Props) {
             className="rounded-[10px] p-3 space-y-2.5"
             style={{
               background: "var(--color-elevated)",
-              border: commitmentId ? "1px solid var(--color-primary)" : "1px solid transparent",
+              border: commitmentIds.length > 0 ? "1px solid var(--color-primary)" : "1px solid transparent",
             }}
           >
             <p className="text-sm" style={{ color: "var(--color-text)" }}>
-              {suggested && commitmentId === suggested.id
+              {suggested && commitmentIds.length === 1 && commitmentIds[0] === suggested.id
                 ? <>Looks like: <span className="font-semibold">{suggested.name}</span></>
                 : "Fulfills a planned payment?"}
             </p>
             <div className="flex flex-wrap gap-2">
               <Chip
-                active={commitmentId === null}
+                active={commitmentIds.length === 0}
                 onClick={() => {
                   touchedPlan.current = true;
-                  setCommitmentId(null);
+                  setCommitmentIds([]);
                 }}
               >
                 None
@@ -455,11 +458,22 @@ export function TransactionEditor({ txn, onClose, inline }: Props) {
               {candidates
                 .filter((x) => !x.claimedBy)
                 .map(({ commitment: i }) => (
-                  <Chip key={i.id} active={commitmentId === i.id} onClick={() => pickCommitment(i.id)}>
+                  <Chip key={i.id} active={commitmentIds.includes(i.id)} onClick={() => pickCommitment(i.id)}>
                     {chipLabel(i)}
                   </Chip>
                 ))}
             </div>
+            {commitmentIds.length > 1 && (
+              <p className="text-xs" style={{ color: "var(--color-faint)" }}>
+                Covers {commitmentIds.length} occurrences ·{" "}
+                {fmt(
+                  windowItems
+                    .filter((i) => commitmentIds.includes(i.id))
+                    .reduce((s, i) => s + i.amount, 0),
+                )}{" "}
+                planned
+              </p>
+            )}
             {candidates.some((x) => x.claimedBy) && (
               <>
                 <p className="text-xs font-semibold" style={{ color: "var(--color-faint)" }}>
@@ -471,8 +485,8 @@ export function TransactionEditor({ txn, onClose, inline }: Props) {
                     .map(({ commitment: i }) => (
                       <Chip
                         key={i.id}
-                        active={commitmentId === i.id}
-                        dim={commitmentId !== i.id}
+                        active={commitmentIds.includes(i.id)}
+                        dim={!commitmentIds.includes(i.id)}
                         onClick={() => pickCommitment(i.id)}
                       >
                         {chipLabel(i)}

@@ -34,6 +34,8 @@ export interface Commitment {
   series_ended: boolean;
 
   skipped: boolean;
+  /** settled by a payment that primarily fulfills another occurrence */
+  covered_by?: string | null;
   variable: boolean;
   auto_confirm: boolean;
 

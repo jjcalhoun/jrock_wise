@@ -70,7 +70,9 @@ export function ReviewFlow({ onClose }: { onClose: () => void }) {
   const [transferAccountId, setTransferAccountId] = useState("");
   const [makeRecurring, setMakeRecurring] = useState(false);
   const [recurFreq, setRecurFreq] = useState<RecurringFrequency>("monthly");
-  const [commitmentId, setCommitmentId] = useState<string | null>(null);
+  // Ordered: the first is the primary that carries the amount; the rest are
+  // covered by the same payment (one cheque, several weeks).
+  const [commitmentIds, setCommitmentIds] = useState<string[]>([]);
 
   // Candidates come from a WINDOW of periods, not the transaction's calendar
   // month — a bill due the 31st that clears on the 1st must still find the
@@ -127,19 +129,24 @@ export function ReviewFlow({ onClose }: { onClose: () => void }) {
   // the commitment already knows where the money goes. Reflect that in the
   // form straight away, so the type shown is the type that will be saved.
   useEffect(() => {
-    if (!commitmentId) return;
-    const picked = windowItems.find((i) => i.id === commitmentId);
+    if (commitmentIds.length === 0) return;
+    const picked = windowItems.find((i) => i.id === commitmentIds[0]);
     const dest = commitmentTransferTarget(picked);
     if (dest) {
       setType("transfer");
       setTransferAccountId(dest);
     }
-  }, [commitmentId, windowItems]);
+  }, [commitmentIds, windowItems]);
+
+  // Tapping adds to the selection rather than replacing it: one payment can
+  // settle several occurrences. The first tapped stays the primary.
+  const toggle = (id: string) =>
+    setCommitmentIds((cur) => (cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id]));
 
   // Pre-select the suggestion — but it is only ever a suggestion. Nothing
   // links itself; saving is what commits it.
   useEffect(() => {
-    setCommitmentId(suggested?.id ?? null);
+    setCommitmentIds(suggested ? [suggested.id] : []);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [txn, suggested?.id]);
 
@@ -194,8 +201,8 @@ export function ReviewFlow({ onClose }: { onClose: () => void }) {
       });
     }
     // Link to the commitment it fulfills (the ledger marks it paid).
-    if (commitmentId !== (txn.commitment_id ?? null)) {
-      await linkTxn.mutateAsync({ txnId: txn.id, commitmentId });
+    if (commitmentIds[0] !== (txn.commitment_id ?? null) || commitmentIds.length > 1) {
+      await linkTxn.mutateAsync({ txnId: txn.id, commitmentId: commitmentIds });
     }
     // Optionally create a recurring rule from this transaction (future occurrences only).
     if (makeRecurring && type !== "refund" && !coveredBy) {
@@ -218,7 +225,7 @@ export function ReviewFlow({ onClose }: { onClose: () => void }) {
         active: true,
         // Link this transaction to the occurrence it represents (unless the
         // user already picked planned payments above).
-        ...(commitmentId === null ? { _sourceTxn: { id: txn.id, date: txn.date } } : {}),
+        ...(commitmentIds.length === 0 ? { _sourceTxn: { id: txn.id, date: txn.date } } : {}),
       });
     }
     setIndex((i) => i + 1);
@@ -374,18 +381,18 @@ export function ReviewFlow({ onClose }: { onClose: () => void }) {
                 className="rounded-[10px] p-3 space-y-2.5"
                 style={{
                   background: "var(--color-surface)",
-                  border: commitmentId ? "1px solid var(--color-primary)" : "1px solid transparent",
+                  border: commitmentIds.length > 0 ? "1px solid var(--color-primary)" : "1px solid transparent",
                 }}
               >
                 <p className="text-sm" style={{ color: "var(--color-text)" }}>
-                  {suggested && commitmentId === suggested.id ? (
+                  {suggested && commitmentIds.length === 1 && commitmentIds[0] === suggested.id ? (
                     <>Looks like: <span className="font-semibold">{suggested.name}</span></>
                   ) : (
                     "Fulfills a planned payment?"
                   )}
                 </p>
                 <div className="flex flex-wrap gap-2">
-                  <Chip active={commitmentId === null} onClick={() => setCommitmentId(null)}>
+                  <Chip active={commitmentIds.length === 0} onClick={() => setCommitmentIds([])}>
                     None
                   </Chip>
                   {candidates
@@ -393,13 +400,24 @@ export function ReviewFlow({ onClose }: { onClose: () => void }) {
                     .map(({ commitment: i }) => (
                       <Chip
                         key={i.id}
-                        active={commitmentId === i.id}
-                        onClick={() => setCommitmentId(commitmentId === i.id ? null : i.id)}
+                        active={commitmentIds.includes(i.id)}
+                        onClick={() => toggle(i.id)}
                       >
                         {chipLabel(i)}
                       </Chip>
                     ))}
                 </div>
+                {commitmentIds.length > 1 && (
+                  <p className="text-xs" style={{ color: "var(--color-faint)" }}>
+                    Covers {commitmentIds.length} occurrences ·{" "}
+                    {fmt(
+                      windowItems
+                        .filter((i) => commitmentIds.includes(i.id))
+                        .reduce((s, i) => s + i.amount, 0),
+                    )}{" "}
+                    planned
+                  </p>
+                )}
                 {candidates.some((x) => x.claimedBy) && (
                   <>
                     <p className="text-xs font-semibold" style={{ color: "var(--color-faint)" }}>
@@ -411,9 +429,9 @@ export function ReviewFlow({ onClose }: { onClose: () => void }) {
                         .map(({ commitment: i }) => (
                           <Chip
                             key={i.id}
-                            active={commitmentId === i.id}
-                            dim={commitmentId !== i.id}
-                            onClick={() => setCommitmentId(commitmentId === i.id ? null : i.id)}
+                            active={commitmentIds.includes(i.id)}
+                            dim={!commitmentIds.includes(i.id)}
+                            onClick={() => toggle(i.id)}
                           >
                             {chipLabel(i)}
                           </Chip>

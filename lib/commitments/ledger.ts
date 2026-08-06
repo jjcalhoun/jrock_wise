@@ -36,6 +36,8 @@ export interface LedgerItem {
   variable: boolean;
   /** named `excluded` for continuity with the screens; stored as `skipped` */
   excluded: boolean;
+  /** settled by a payment that primarily fulfills another occurrence */
+  coveredBy?: string | null;
   status: "expected" | "paid";
   /** signed actual from linked transactions (null until something links) */
   actual: number | null;
@@ -99,9 +101,12 @@ export function ledger(
 
   const items: LedgerItem[] = inPeriod.map((c) => {
     const linked = c.skipped ? [] : (linkedByCommitment.get(c.id) ?? []);
-    const actual = linkedActual(c.kind, linked);
-    const effective = c.skipped ? 0 : (actual ?? c.amount);
-    if (!c.skipped) {
+    // A week settled by someone else's lump payment counts ZERO here: the
+    // primary line carries the whole amount, so the cash lands once.
+    const covered = !!c.covered_by;
+    const actual = covered ? 0 : linkedActual(c.kind, linked);
+    const effective = c.skipped || covered ? 0 : (actual ?? c.amount);
+    if (!c.skipped && !covered) {
       if (c.kind === "income") {
         expectedIncome += c.amount;
         incomeEffective += effective;
@@ -119,7 +124,8 @@ export function ledger(
       due_hint: c.due_hint,
       variable: c.variable,
       excluded: c.skipped,
-      status: actual !== null ? "paid" : "expected",
+      coveredBy: c.covered_by ?? null,
+      status: covered || actual !== null ? "paid" : "expected",
       actual,
       effective,
       linked,
