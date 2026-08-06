@@ -132,6 +132,7 @@ export function buildSeed(todayIso: string): DemoTables {
     recurring_rules: [],
     month_plans: [],
     month_plan_items: [],
+    commitments: [],
     budget_plan: [],
     category_budgets: [],
     settings: [],
@@ -202,7 +203,7 @@ export function buildSeed(todayIso: string): DemoTables {
       id, user_id: U, merchant: null, description: null, type: "expense",
       transfer_account_id: null, transfer_group_id: null, bucket: null, notes: null,
       source: "sync", external_id: null, import_batch_id: null, reviewed: true,
-      plan_item_id: null, ...stamp, ...row,
+      plan_item_id: null, commitment_id: null, ...stamp, ...row,
     });
     return id;
   };
@@ -267,7 +268,9 @@ export function buildSeed(todayIso: string): DemoTables {
     }
   }
 
-  /* current month's plan (confirmed on the 1st) + explicit links */
+  /* current month's commitments (confirmed on the 1st) + explicit links.
+     One row per occurrence, keyed by (series, period, seq) — the rule's id
+     doubles as its series_id, exactly as the phase-1 backfill does. */
   const planId = nid();
   t.month_plans = [{
     id: planId, user_id: U, month, confirmed_at: `${month}-01T13:00:00Z`, ...stamp,
@@ -276,20 +279,35 @@ export function buildSeed(todayIso: string): DemoTables {
   for (const rule of RULES) {
     const kind = rule.type === "income" ? "income" : rule.type === "expense" ? "bill" : destKind[rule.transfer_account_id ?? ""];
     if (!kind) continue;
-    for (const due of ruleDates(rule, monthStart, monthEnd)) {
-      const itemId = nid();
-      t.month_plan_items.push({
-        id: itemId, user_id: U, plan_id: planId, rule_id: rule.id, name: rule.name,
-        kind, amount: rule.type === "income" ? Math.abs(rule.amount) : -Math.abs(rule.amount),
-        due_date: due, variable: !!rule.variable, excluded: false, created_at: stamp.created_at,
+    ruleDates(rule, monthStart, monthEnd).forEach((due, seq) => {
+      const cid = nid();
+      t.commitments.push({
+        id: cid, user_id: U, series_id: rule.id, period: month, seq,
+        name: rule.name, kind,
+        amount: rule.type === "income" ? Math.abs(rule.amount) : -Math.abs(rule.amount),
+        account_id: rule.account_id,
+        transfer_account_id: rule.transfer_account_id ?? null,
+        category_id: rule.category_id ?? null,
+        bucket: rule.bucket ?? null,
+        due_hint: due,
+        frequency: rule.frequency,
+        day_of_month: rule.day_of_month ?? null,
+        day_of_month_2: null,
+        weekday: rule.weekday ?? null,
+        interval: 1,
+        series_ended: false,
+        skipped: false,
+        variable: !!rule.variable,
+        auto_confirm: false,
+        ...stamp,
       });
       // link the generated rows for this occurrence
       const ext = `recurring:${rule.id}:${due}`;
       for (const txn of t.transactions) {
         const e = txn.external_id as string | null;
-        if (e === ext || e === `${ext}:c`) txn.plan_item_id = itemId;
+        if (e === ext || e === `${ext}:c`) txn.commitment_id = cid;
       }
-    }
+    });
   }
 
   return t;
