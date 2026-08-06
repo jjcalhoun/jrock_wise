@@ -19,6 +19,7 @@ import { useCommitmentWindow, useLinkCommitment } from "@/hooks/useCommitments";
 import { rankCommitments, suggestCommitment, orderForDisplay } from "@/lib/commitments/match";
 import { periodWindow } from "@/lib/commitments/period";
 import { commitmentTransferTarget } from "@/lib/commitments/types";
+import { selectionFor } from "@/lib/commitments/restore";
 import { monthKey } from "@/lib/aggregations";
 import { SeriesEditor } from "@/components/plan/SeriesEditor";
 import { isInterestPaid } from "@/lib/interestPaid";
@@ -123,6 +124,16 @@ export function TransactionEditor({ txn, onClose, inline }: Props) {
   useEffect(() => {
     if (!touchedPlan.current && !txn.commitment_id && suggested) setCommitmentIds([suggested.id]);
   }, [suggested, txn.commitment_id]);
+
+  // Restore the WHOLE selection when reopening, not just the primary. The
+  // extra occurrences live as covered_by on the commitment rows, so they only
+  // become known once the window loads — without this they read as unselected
+  // even though they are settled.
+  useEffect(() => {
+    if (touchedPlan.current || !txn.commitment_id) return;
+    const full = selectionFor(txn, windowItems);
+    if (full.length > 1) setCommitmentIds(full);
+  }, [windowItems, txn.commitment_id, txn.id]);
   const pickCommitment = (id: string) => {
     touchedPlan.current = true;
     setCommitmentIds((cur) => (cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id]));

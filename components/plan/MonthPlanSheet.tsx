@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Sheet } from "@/components/ui/Sheet";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
@@ -15,10 +15,13 @@ import {
   useEndSeries,
 } from "@/hooks/useCommitments";
 import { useRecurringRules } from "@/hooks/useRecurring";
+import { useTransactions } from "@/hooks/useSupabaseData";
 import { SeriesEditor } from "@/components/plan/SeriesEditor";
 import { PlanSuggestions } from "@/components/plan/PlanSuggestions";
 import { fmt, fmt0, monthLabel } from "@/lib/format";
 import type { Commitment, CommitmentKind } from "@/lib/commitments/types";
+import type { Transaction } from "@/lib/types";
+import { settlementFor, type Settlement } from "@/lib/commitments/restore";
 
 /* The month plan — expected income and committed payments for one period,
    cloned forward from the live series and edited here. The ledger behind
@@ -51,6 +54,15 @@ export function MonthPlanSheet({ month, onClose }: { month: string; onClose: () 
   // item, so there's no separate list of rules to go and find.
   const [editingSeries, setEditingSeries] = useState<string | null>(null);
   const { data: rules = [] } = useRecurringRules();
+  const { data: transactions = [] } = useTransactions();
+
+  // What settled each line: a payment linked directly to it, or one that
+  // covers it as part of a lump. Without this a paid week looked exactly like
+  // an expected one, and the only way to tell was to read the database.
+  const settledBy = useMemo(
+    () => (c: Commitment) => settlementFor(c, transactions),
+    [transactions],
+  );
   const drafted = useRef(false);
 
   // Materialize the period from the live series. Idempotent — series already
@@ -99,6 +111,7 @@ export function MonthPlanSheet({ month, onClose }: { month: string; onClose: () 
                 <ItemRow
                   key={i.id}
                   item={i}
+                  settled={settledBy(i)}
                   onToggle={() => update.mutate({ id: i.id, skipped: !i.skipped })}
                   onAmount={(amount) => update.mutate({ id: i.id, amount })}
                   // a one-off is deleted outright; a series is ENDED, which
@@ -173,6 +186,7 @@ export function MonthPlanSheet({ month, onClose }: { month: string; onClose: () 
 
 function ItemRow({
   item,
+  settled,
   onToggle,
   onAmount,
   onDelete,
@@ -180,6 +194,7 @@ function ItemRow({
   onEdit,
 }: {
   item: Commitment;
+  settled: Settlement | null;
   onToggle: () => void;
   onAmount: (amount: number) => void;
   onDelete?: () => void;
@@ -220,9 +235,15 @@ function ItemRow({
             {item.name}
           </p>
         )}
-        <p className="text-xs" style={{ color: "var(--color-faint)" }}>
-          {day ? `around the ${day}${ordinal(day)}` : "this month"}
-          {item.variable ? " · varies" : ""}
+        <p className="text-xs" style={{ color: settled ? "var(--color-positive)" : "var(--color-faint)" }}>
+          {settled
+            ? settled.viaCover
+              ? `covered by ${payerName(settled.txn)}`
+              : `paid ${fmt(Math.abs(settled.txn.amount))}`
+            : day
+              ? `around the ${day}${ordinal(day)}`
+              : "this month"}
+          {!settled && item.variable ? " · varies" : ""}
         </p>
       </div>
       {editing ? (
@@ -276,6 +297,10 @@ function ItemRow({
     </div>
   );
 }
+
+/** Short label for the payment that settled a line. */
+const payerName = (t: Transaction) =>
+  t.merchant || t.description || "another payment";
 
 const ordinal = (n: number) => {
   if (n % 100 >= 11 && n % 100 <= 13) return "th";
