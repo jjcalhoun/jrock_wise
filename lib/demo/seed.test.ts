@@ -18,8 +18,8 @@ describe("demo seed", () => {
   });
 
   it("has a confirmed current-month plan with linked occurrences", () => {
-    expect(t.month_plans).toHaveLength(1);
-    expect(t.month_plans[0].confirmed_at).toBeTruthy();
+    expect(t.plan_periods).toHaveLength(1);
+    expect(t.plan_periods[0].confirmed_at).toBeTruthy();
     expect(t.commitments.length).toBeGreaterThan(6);
     // every rule-generated July row is linked to its commitment
     const gen = t.transactions.filter(

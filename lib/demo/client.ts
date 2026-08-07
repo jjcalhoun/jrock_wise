@@ -164,6 +164,8 @@ class Query implements PromiseLike<{ data: unknown; error: null; count: number |
             existing = all.find((r) => r.user_id === row.user_id);
           else if (this.table === "recurring_suggestion_dismissals")
             existing = all.find((r) => r.user_id === row.user_id && r.signature === row.signature);
+          else if (this.table === "plan_periods")
+            existing = all.find((r) => r.user_id === row.user_id && r.period === row.period);
         }
         if (existing) {
           Object.assign(existing, row);
@@ -192,9 +194,12 @@ class Query implements PromiseLike<{ data: unknown; error: null; count: number |
         const gone = new Set(result.map((r) => r.id));
         tables.transaction_splits = tables.transaction_splits.filter((s) => !gone.has(s.transaction_id));
       }
-      if (this.table === "month_plans") {
+      // deleting a commitment unlinks the transactions that fulfilled it
+      if (this.table === "commitments") {
         const gone = new Set(result.map((r) => r.id));
-        tables.month_plan_items = tables.month_plan_items.filter((i) => !gone.has(i.plan_id));
+        for (const t of tables.transactions) {
+          if (gone.has(t.commitment_id as string)) t.commitment_id = null;
+        }
       }
       persist();
     } else {

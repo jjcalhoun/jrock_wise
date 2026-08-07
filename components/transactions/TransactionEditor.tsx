@@ -14,7 +14,8 @@ import {
   useResolveTransfer,
 } from "@/hooks/useSupabaseData";
 import { CategoryGrid } from "@/components/transactions/CategoryGrid";
-import { useUpsertRecurringRule, useRecurringRules } from "@/hooks/useRecurring";
+import { useUpsertSeries, useSeries } from "@/hooks/useSeries";
+import { reviewKind, seriesInputFrom } from "@/lib/commitments/series";
 import { useCommitmentWindow, useLinkCommitment } from "@/hooks/useCommitments";
 import { rankCommitments, suggestCommitment, orderForDisplay } from "@/lib/commitments/match";
 import { periodWindow } from "@/lib/commitments/period";
@@ -26,7 +27,8 @@ import { isInterestPaid } from "@/lib/interestPaid";
 import { todayISO } from "@/lib/dates";
 import { fmt, shortDate } from "@/lib/format";
 import { BUCKETS } from "@/lib/buckets";
-import type { Transaction, TransactionType, BucketType, RecurringFrequency, RecurringRule } from "@/lib/types";
+import type { Transaction, TransactionType, BucketType, RecurringFrequency } from "@/lib/types";
+import type { Commitment } from "@/lib/commitments/types";
 
 const norm = (s: string) => s.toLowerCase().replace(/\s+/g, " ").trim();
 
@@ -53,11 +55,11 @@ export function TransactionEditor({ txn, onClose, inline }: Props) {
   const { data: accounts = [] } = useAccounts();
   const { data: categories = [] } = useCategories();
   const { data: allTxns = [] } = useTransactions();
-  const { data: rules = [] } = useRecurringRules();
+  const { data: series = [] } = useSeries();
   const update = useUpdateTransaction();
   const del = useDeleteTransaction();
   const resolveTransfer = useResolveTransfer();
-  const upsertRule = useUpsertRecurringRule();
+  const upsertSeries = useUpsertSeries();
   const linkTxn = useLinkCommitment();
 
   const firstSplit = (txn.splits ?? [])[0];
@@ -75,32 +77,33 @@ export function TransactionEditor({ txn, onClose, inline }: Props) {
   const [recurFreq, setRecurFreq] = useState<RecurringFrequency>("monthly");
   // which series the editor is open on — the rule that GENERATED this row, or
   // the one that covers its merchant; they are not always the same.
-  const [editingRule, setEditingRule] = useState<RecurringRule | null>(null);
+  const [editingSeries, setEditingSeries] = useState<Commitment | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   /* ---- recurring status ---- */
-  // A row our generator created — it IS a rule occurrence; no checkbox.
+  // Rows our old generator wrote still exist and still say `recurring`. Nothing
+  // creates them any more, so this is a historical marker only.
   const genRuleId = /^recurring:([^:]+):/.exec(txn.external_id ?? "")?.[1] ?? null;
   const isGenerated = txn.source === "recurring" || !!genRuleId;
-  const genRule = genRuleId ? rules.find((r) => r.id === genRuleId) : undefined;
+  const genSeries = genRuleId ? series.find((c) => c.series_id === genRuleId) : undefined;
 
-  // An active rule already covering this merchant on this account → the box
-  // shows CHECKED; unchecking pauses the rule (reversible, keeps history).
-  const matchedRule = useMemo(() => {
+  // A live series already covering this merchant on this account → the box
+  // shows CHECKED; unchecking ends the series (keeps history, stops the future).
+  const matchedSeries = useMemo(() => {
     if (isGenerated) return undefined;
     const m = norm(txn.merchant || txn.description || "");
     if (!m) return undefined;
-    return rules.find((r) => {
-      if (!r.active || r.account_id !== txn.account_id || r.type !== txn.type) return false;
-      const n = norm(r.name);
+    return series.find((c) => {
+      if (c.series_ended || c.account_id !== txn.account_id) return false;
+      const n = norm(c.name);
       return !!n && (n === m || n.includes(m) || m.includes(n));
     });
-  }, [rules, txn, isGenerated]);
+  }, [series, txn, isGenerated]);
 
   const touchedRecur = useRef(false);
   useEffect(() => {
-    if (!touchedRecur.current) setMakeRecurring(!!matchedRule);
-  }, [matchedRule]);
+    if (!touchedRecur.current) setMakeRecurring(!!matchedSeries);
+  }, [matchedSeries]);
 
   /* ---- planned-payment link ---- */
   const txnMonth = monthKey(txn.date);
@@ -146,7 +149,7 @@ export function TransactionEditor({ txn, onClose, inline }: Props) {
     }
   };
 
-  const canRecur = type !== "refund" && !isGenerated; // rules cover expense / income / transfer
+  const canRecur = type !== "refund" && !isGenerated; // a plan line covers expense / income / transfer
 
   // Interest charges affect the account balance only — they carry no category
   // split and are excluded from the budget, so we don't prompt for a category.
@@ -196,32 +199,37 @@ export function TransactionEditor({ txn, onClose, inline }: Props) {
         await resolveTransfer.mutateAsync({ id: txn.id, transfer_account_id: transferAccountId });
       }
       if (canRecur) {
-        if (matchedRule && !makeRecurring) {
-          // Unchecked an already-covered merchant → pause the rule (reversible).
-          await upsertRule.mutateAsync({ ...matchedRule, active: false });
-        } else if (!matchedRule && makeRecurring) {
-          // Spin up a recurring rule from this transaction. It generates FUTURE
-          // occurrences only (watermark = today), so this row isn't duplicated.
+        if (matchedSeries && !makeRecurring) {
+          // Unchecked an already-covered merchant → end the series. Its history
+          // stays; only the future stops.
+          await upsertSeries.mutateAsync({
+            seriesId: matchedSeries.series_id,
+            period: date.slice(0, 7),
+            input: seriesInputFrom(matchedSeries, true),
+          });
+        } else if (!matchedSeries && makeRecurring) {
+          // Turn this transaction into a plan line. It expects FUTURE
+          // occurrences; this row links to the one it already represents rather
+          // than being posted a second time.
           const d = new Date(`${date}T00:00:00Z`);
-          await upsertRule.mutateAsync({
-            name: merchant.trim() || "Recurring",
-            account_id: accountId,
-            type: type as "expense" | "income" | "transfer",
-            amount: signed,
-            transfer_account_id: type === "transfer" ? transferAccountId || null : null,
-            category_id: type === "expense" ? categoryId || null : null,
-            bucket: type === "expense" ? bucket : null,
-            frequency: recurFreq,
-            day_of_month: recurFreq === "monthly" ? d.getUTCDate() : null,
-            weekday: recurFreq === "weekly" || recurFreq === "biweekly" ? d.getUTCDay() : null,
-            interval: 1,
-            start_date: date,
-            last_generated: todayISO(),
-            auto_review: true,
-            active: true,
+          await upsertSeries.mutateAsync({
+            period: date.slice(0, 7),
+            input: {
+              name: merchant.trim() || "Recurring",
+              kind: reviewKind(type, transferAccountId, accounts),
+              amount: Math.abs(signed),
+              account_id: accountId,
+              transfer_account_id: type === "transfer" ? transferAccountId || null : null,
+              category_id: type === "expense" ? categoryId || null : null,
+              bucket: type === "expense" ? bucket : null,
+              frequency: recurFreq,
+              day_of_month: recurFreq === "monthly" ? d.getUTCDate() : null,
+              weekday: recurFreq === "weekly" || recurFreq === "biweekly" ? d.getUTCDay() : null,
+              interval: 1,
+            },
             // Link this transaction to the occurrence it represents (unless a
             // planned payment was picked explicitly below).
-            ...(commitmentIds.length === 0 ? { _sourceTxn: { id: txn.id, date } } : {}),
+            ...(commitmentIds.length === 0 ? { sourceTxn: { id: txn.id, date } } : {}),
           });
         }
         // matched + still checked → already covered, nothing to create.
@@ -385,10 +393,10 @@ export function TransactionEditor({ txn, onClose, inline }: Props) {
                 Recurring
               </p>
               <p className="text-xs mt-0.5" style={{ color: "var(--color-faint)" }}>
-                Generated by {genRule ? `“${genRule.name}”` : "a recurring rule"}
+                Generated by {genSeries ? `“${genSeries.name}”` : "a recurring rule"}
               </p>
             </div>
-            <Button size="sm" variant="secondary" onClick={() => genRule && setEditingRule(genRule)}>
+            <Button size="sm" variant="secondary" onClick={() => genSeries && setEditingSeries(genSeries)}>
               Manage
             </Button>
           </div>
@@ -411,14 +419,14 @@ export function TransactionEditor({ txn, onClose, inline }: Props) {
                 style={{ accentColor: "var(--color-primary)" }}
               />
             </label>
-            {matchedRule ? (
+            {matchedSeries ? (
               <div className="flex items-center justify-between gap-3">
                 <p className="text-xs" style={{ color: "var(--color-faint)" }}>
                   {makeRecurring
-                    ? `Covered by “${matchedRule.name}” — uncheck to pause that rule.`
-                    : `Saving will pause “${matchedRule.name}” (no future occurrences until resumed).`}
+                    ? `Covered by “${matchedSeries.name}” — uncheck to end it.`
+                    : `Saving will end “${matchedSeries.name}” (no future occurrences).`}
                 </p>
-                <Button size="sm" variant="secondary" onClick={() => matchedRule && setEditingRule(matchedRule)}>
+                <Button size="sm" variant="secondary" onClick={() => matchedSeries && setEditingSeries(matchedSeries)}>
                   Manage
                 </Button>
               </div>
@@ -530,13 +538,13 @@ export function TransactionEditor({ txn, onClose, inline }: Props) {
     return (
       <>
         {body}
-        {editingRule && <SeriesEditor rule={editingRule} onClose={() => setEditingRule(null)} />}
+        {editingSeries && <SeriesEditor series={editingSeries} period={date.slice(0, 7)} onClose={() => setEditingSeries(null)} />}
       </>
     );
   return (
     <Sheet title="Edit transaction" onClose={onClose}>
       {body}
-      {editingRule && <SeriesEditor rule={editingRule} onClose={() => setEditingRule(null)} />}
+      {editingSeries && <SeriesEditor series={editingSeries} period={date.slice(0, 7)} onClose={() => setEditingSeries(null)} />}
     </Sheet>
   );
 }

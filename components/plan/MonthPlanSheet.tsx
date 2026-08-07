@@ -5,7 +5,7 @@ import { Sheet } from "@/components/ui/Sheet";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Card } from "@/components/ui/Card";
-import { useMonthPlan, useCreatePlanDraft, useConfirmPlan } from "@/hooks/useMonthPlan";
+import { usePlanPeriod, useConfirmPeriod } from "@/hooks/usePlanPeriod";
 import {
   useCommitments,
   useEnsurePeriod,
@@ -16,7 +16,7 @@ import {
   useConfirmCommitment,
   useUnconfirmCommitment,
 } from "@/hooks/useCommitments";
-import { useRecurringRules } from "@/hooks/useRecurring";
+import { useSeries } from "@/hooks/useSeries";
 import { useTransactions, useAccounts } from "@/hooks/useSupabaseData";
 import { useSimplefinMappings } from "@/hooks/useSimplefin";
 import { SeriesEditor } from "@/components/plan/SeriesEditor";
@@ -45,11 +45,10 @@ const KIND_LABEL: Record<CommitmentKind, string> = {
 };
 
 export function MonthPlanSheet({ month, onClose }: { month: string; onClose: () => void }) {
-  const { data: planData, isLoading: lp } = useMonthPlan(month);
+  const { data: planPeriod, isLoading: lp } = usePlanPeriod(month);
   const { data: items = [], isLoading } = useCommitments(month);
-  const createDraft = useCreatePlanDraft();
   const ensure = useEnsurePeriod();
-  const confirm = useConfirmPlan(month);
+  const confirm = useConfirmPeriod(month);
   const update = useUpdateCommitment(month);
   const add = useAddOneOffCommitment(month);
   const del = useDeleteCommitment(month);
@@ -58,7 +57,8 @@ export function MonthPlanSheet({ month, onClose }: { month: string; onClose: () 
   // Editing a series happens from its row — the plan line IS the recurring
   // item, so there's no separate list of rules to go and find.
   const [editingSeries, setEditingSeries] = useState<string | null>(null);
-  const { data: rules = [] } = useRecurringRules();
+  const [addingSeries, setAddingSeries] = useState(false);
+  const { data: series = [] } = useSeries();
   const { data: transactions = [] } = useTransactions();
   const { data: accounts = [] } = useAccounts();
   const { data: mappings = [] } = useSimplefinMappings();
@@ -92,10 +92,7 @@ export function MonthPlanSheet({ month, onClose }: { month: string; onClose: () 
     if (isLoading || lp || drafted.current) return;
     drafted.current = true;
     ensure.mutate(month);
-    if (!planData?.plan) createDraft.mutate({ month, draft: [] });
-  }, [isLoading, lp, planData, ensure, createDraft, month]);
-
-  const plan = planData?.plan ?? null;
+  }, [isLoading, lp, ensure, month]);
 
   const included = items.filter((i) => !i.skipped);
   const expectedIncome = included.filter((i) => i.kind === "income").reduce((s, i) => s + i.amount, 0);
@@ -150,27 +147,32 @@ export function MonthPlanSheet({ month, onClose }: { month: string; onClose: () 
                   // stops future occurrences without erasing its history
                   onDelete={i.series_ended ? () => del.mutate(i.id) : undefined}
                   onEndSeries={i.series_ended ? undefined : () => endSeries.mutate(i.series_id)}
-                  onEdit={
-                    rules.some((r) => r.id === i.series_id)
-                      ? () => setEditingSeries(i.series_id)
-                      : undefined
-                  }
+                  onEdit={i.series_ended ? undefined : () => setEditingSeries(i.series_id)}
                 />
               ))}
             </Card>
           </div>
         ))}
 
-        {plan && !adding && (
-          <button
-            onClick={() => setAdding(true)}
-            className="w-full text-xs font-semibold py-1"
-            style={{ color: "var(--color-primary)" }}
-          >
-            + Add a one-off line
-          </button>
+        {!adding && (
+          <div className="flex gap-4">
+            <button
+              onClick={() => setAdding(true)}
+              className="text-xs font-semibold py-1"
+              style={{ color: "var(--color-primary)" }}
+            >
+              + One-off line
+            </button>
+            <button
+              onClick={() => setAddingSeries(true)}
+              className="text-xs font-semibold py-1"
+              style={{ color: "var(--color-primary)" }}
+            >
+              + Recurring
+            </button>
+          </div>
         )}
-        {plan && adding && (
+        {adding && (
           <AddItemForm
             onAdd={(name, kind, amount) => {
               add.mutate({ name, kind, amount });
@@ -194,23 +196,27 @@ export function MonthPlanSheet({ month, onClose }: { month: string; onClose: () 
           </div>
         </Card>
 
-        <PlanSuggestions onEdit={setEditingSeries} />
+        <PlanSuggestions period={month} onEdit={setEditingSeries} />
 
-        {plan && !plan.confirmed_at ? (
-          <Button fullWidth onClick={() => confirm.mutate(plan.id)} disabled={confirm.isPending}>
+        {!planPeriod?.confirmed_at ? (
+          <Button fullWidth onClick={() => confirm.mutate()} disabled={confirm.isPending}>
             {confirm.isPending ? "Confirming…" : `Confirm ${monthLabel(month)} plan`}
           </Button>
-        ) : plan ? (
+        ) : (
           <p className="text-xs text-center" style={{ color: "var(--color-faint)" }}>
             Confirmed — edits apply immediately.
           </p>
-        ) : null}
+        )}
       </div>
       {editingSeries && (
         <SeriesEditor
-          rule={rules.find((r) => r.id === editingSeries)}
+          series={series.find((c) => c.series_id === editingSeries)}
+          period={month}
           onClose={() => setEditingSeries(null)}
         />
+      )}
+      {addingSeries && (
+        <SeriesEditor period={month} onClose={() => setAddingSeries(false)} />
       )}
     </Sheet>
   );

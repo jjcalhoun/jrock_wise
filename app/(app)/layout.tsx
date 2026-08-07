@@ -2,7 +2,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { BottomNav } from "@/components/nav/BottomNav";
 import { SideNav } from "@/components/nav/SideNav";
-import { RecurringRunner } from "@/components/recurring/RecurringRunner";
+import { HousekeepingRunner } from "@/components/housekeeping/HousekeepingRunner";
 import { MonthPlanPrompt } from "@/components/plan/MonthPlanPrompt";
 
 const demo = process.env.NEXT_PUBLIC_DEMO === "1";
@@ -32,7 +32,7 @@ export default async function AppLayout({
           Demo — fictional data, resets daily
         </div>
       )}
-      <RecurringRunner />
+      <HousekeepingRunner />
       <MonthPlanPrompt />
       {/* Desktop: sidebar; mobile: bottom nav (below) */}
       <SideNav />

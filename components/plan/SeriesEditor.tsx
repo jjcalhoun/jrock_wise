@@ -7,16 +7,17 @@ import { Button } from "@/components/ui/Button";
 import { Chip } from "@/components/ui/Chip";
 import { CategoryGrid } from "@/components/transactions/CategoryGrid";
 import { useAccounts, useCategories } from "@/hooks/useSupabaseData";
-import { useUpsertRecurringRule, useDeleteRecurringRule } from "@/hooks/useRecurring";
-import type { RecurringRule, RecurringFrequency } from "@/lib/types";
+import { useUpsertSeries, useDeleteSeries } from "@/hooks/useSeries";
+import type { Commitment, CommitmentKind } from "@/lib/commitments/types";
+import type { RecurringFrequency } from "@/lib/types";
 
 /* Editing one recurring series: what it is, where it's paid from, and how it
-   repeats. Saving writes the rule AND pushes name, amount and schedule onto
-   this period's commitments, so the plan reflects the edit immediately.
+   repeats.
 
-   This used to live inside the recurring manager screen. It moved out so the
-   month plan can open it directly — the plan row IS the series now, so there
-   is no separate list of rules to manage. */
+   It edits the plan line directly now. There is no rule behind it to keep in
+   step — the line IS the series, so saving rebuilds this month's unpaid
+   occurrences and clone-forward carries the change into next month on its own.
+   Anything already paid keeps the amount it was paid at. */
 
 const FREQS: { value: RecurringFrequency; label: string }[] = [
   { value: "monthly", label: "Monthly" },
@@ -25,70 +26,79 @@ const FREQS: { value: RecurringFrequency; label: string }[] = [
   { value: "weekly", label: "Weekly" },
 ];
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-const todayISO = () => new Date().toISOString().slice(0, 10);
 
-export function SeriesEditor({ rule, onClose }: { rule?: RecurringRule; onClose: () => void }) {
+/* What the money is doing, in the plan's own vocabulary. The old editor asked
+   for a transaction "type" and then inferred the kind from the destination
+   account, which meant a mortgage could only be a loan payment by accident. */
+const KINDS: { value: CommitmentKind; label: string; transfer: boolean }[] = [
+  { value: "bill", label: "Bill", transfer: false },
+  { value: "income", label: "Income", transfer: false },
+  { value: "debt", label: "Loan payment", transfer: true },
+  { value: "cc_payment", label: "Card payment", transfer: true },
+  { value: "savings", label: "Savings", transfer: true },
+];
+
+export function SeriesEditor({
+  series,
+  period,
+  onClose,
+}: {
+  /** the series' latest occurrence — undefined creates a new one */
+  series?: Commitment;
+  period: string;
+  onClose: () => void;
+}) {
   const { data: accounts = [] } = useAccounts();
   const { data: categories = [] } = useCategories();
-  const upsert = useUpsertRecurringRule();
-  const del = useDeleteRecurringRule();
+  const upsert = useUpsertSeries();
+  const del = useDeleteSeries();
 
-  const [name, setName] = useState(rule?.name ?? "");
-  const [accountId, setAccountId] = useState(rule?.account_id ?? "");
-  const [type, setType] = useState<RecurringRule["type"]>(rule?.type ?? "expense");
-  const [amount, setAmount] = useState(rule ? String(Math.abs(rule.amount)) : "");
-  const [inflow, setInflow] = useState(rule ? rule.amount >= 0 : false); // transfer direction
-  const [transferId, setTransferId] = useState(rule?.transfer_account_id ?? "");
-  const [categoryId, setCategoryId] = useState(rule?.category_id ?? "");
-  const [freq, setFreq] = useState<RecurringFrequency>(rule?.frequency ?? "monthly");
-  const [day1, setDay1] = useState(rule?.day_of_month ? String(rule.day_of_month) : "1");
-  const [day2, setDay2] = useState(rule?.day_of_month_2 ? String(rule.day_of_month_2) : "15");
-  const [weekday, setWeekday] = useState(rule?.weekday ?? 5);
-  const [startDate, setStartDate] = useState(rule?.start_date ?? todayISO());
-  const [endDate, setEndDate] = useState(rule?.end_date ?? "");
-  const [autoReview, setAutoReview] = useState(rule?.auto_review ?? true);
-  const [active, setActive] = useState(rule?.active ?? true);
+  const [name, setName] = useState(series?.name ?? "");
+  const [accountId, setAccountId] = useState(series?.account_id ?? "");
+  const [kind, setKind] = useState<CommitmentKind>(series?.kind ?? "bill");
+  const [amount, setAmount] = useState(series ? String(Math.abs(series.amount)) : "");
+  const [transferId, setTransferId] = useState(series?.transfer_account_id ?? "");
+  const [categoryId, setCategoryId] = useState(series?.category_id ?? "");
+  const [freq, setFreq] = useState<RecurringFrequency>(series?.frequency ?? "monthly");
+  const [day1, setDay1] = useState(series?.day_of_month ? String(series.day_of_month) : "1");
+  const [day2, setDay2] = useState(series?.day_of_month_2 ? String(series.day_of_month_2) : "15");
+  const [weekday, setWeekday] = useState(series?.weekday ?? 5);
+  const [variable, setVariable] = useState(series?.variable ?? false);
+  const [active, setActive] = useState(series ? !series.series_ended : true);
   const [error, setError] = useState<string | null>(null);
 
+  const isTransfer = KINDS.find((k) => k.value === kind)?.transfer ?? false;
   const selectedCat = categories.find((c) => c.id === categoryId);
 
   async function save() {
     setError(null);
-    if (!name.trim()) return setError("Give the rule a name.");
+    if (!name.trim()) return setError("Give it a name.");
     if (!accountId) return setError("Choose an account.");
     const mag = Math.abs(parseFloat(amount));
     if (isNaN(mag) || mag === 0) return setError("Enter an amount.");
-    if (type === "transfer" && !transferId) return setError("Choose the transfer account.");
-    if (type === "expense" && !categoryId) return setError("Choose a category.");
-
-    // Sign: expense negative, income positive, transfer per direction.
-    const signed =
-      type === "expense" ? -mag : type === "income" ? mag : inflow ? mag : -mag;
+    if (isTransfer && !transferId) return setError("Choose the account being paid.");
+    if (kind === "bill" && !categoryId) return setError("Choose a category.");
 
     try {
       await upsert.mutateAsync({
-        id: rule?.id,
-        name: name.trim(),
-        account_id: accountId,
-        type,
-        amount: signed,
-        transfer_account_id: type === "transfer" ? transferId : null,
-        category_id: type === "expense" ? categoryId : null,
-        bucket: type === "expense" ? selectedCat?.bucket ?? null : null,
-        frequency: freq,
-        day_of_month: freq === "monthly" || freq === "semimonthly" ? parseInt(day1) : null,
-        day_of_month_2: freq === "semimonthly" ? parseInt(day2) : null,
-        weekday: freq === "weekly" || freq === "biweekly" ? weekday : null,
-        interval: 1,
-        start_date: startDate,
-        end_date: endDate || null,
-        auto_review: autoReview,
-        active,
-        // Reactivating a paused rule resumes from today — otherwise the
-        // generator would backfill every occurrence "missed" while paused.
-        ...(rule && !rule.active && active
-          ? { last_generated: new Date().toLocaleDateString("en-CA") }
-          : {}),
+        seriesId: series?.series_id,
+        period,
+        input: {
+          name: name.trim(),
+          kind,
+          amount: mag,
+          account_id: accountId,
+          transfer_account_id: isTransfer ? transferId : null,
+          category_id: kind === "bill" ? categoryId : null,
+          bucket: kind === "bill" ? selectedCat?.bucket ?? null : null,
+          frequency: freq,
+          day_of_month: freq === "monthly" || freq === "semimonthly" ? parseInt(day1) : null,
+          day_of_month_2: freq === "semimonthly" ? parseInt(day2) : null,
+          weekday: freq === "weekly" || freq === "biweekly" ? weekday : null,
+          interval: 1,
+          variable,
+          ended: !active,
+        },
       });
       onClose();
     } catch (e) {
@@ -97,19 +107,19 @@ export function SeriesEditor({ rule, onClose }: { rule?: RecurringRule; onClose:
   }
 
   async function remove() {
-    if (!rule) return;
-    if (!confirm(`Delete "${rule.name}"? Already-generated transactions are kept.`)) return;
-    await del.mutateAsync(rule.id);
+    if (!series) return;
+    if (!confirm(`Delete "${series.name}"? Payments already matched to it are kept.`)) return;
+    await del.mutateAsync(series.series_id);
     onClose();
   }
 
   return (
-    <Sheet title={rule ? "Edit rule" : "New recurring rule"} onClose={onClose}>
+    <Sheet title={series ? "Edit recurring" : "New recurring"} onClose={onClose}>
       <div className="px-5 py-4 space-y-4">
         <Input label="Name" placeholder="e.g. Payday allocation" value={name} onChange={(e) => setName(e.target.value)} />
 
         <div>
-          <p className="text-xs font-medium mb-2" style={{ color: "var(--color-muted)" }}>Account</p>
+          <p className="text-xs font-medium mb-2" style={{ color: "var(--color-muted)" }}>Paid from</p>
           <div className="flex flex-wrap gap-2">
             {accounts.map((a) => (
               <Chip key={a.id} active={accountId === a.id} onClick={() => setAccountId(a.id)}>{a.name}</Chip>
@@ -118,11 +128,11 @@ export function SeriesEditor({ rule, onClose }: { rule?: RecurringRule; onClose:
         </div>
 
         <div>
-          <p className="text-xs font-medium mb-2" style={{ color: "var(--color-muted)" }}>Type</p>
-          <div className="flex gap-2">
-            {(["expense", "income", "transfer"] as const).map((t) => (
-              <Chip key={t} active={type === t} onClick={() => setType(t)}>
-                {t[0].toUpperCase() + t.slice(1)}
+          <p className="text-xs font-medium mb-2" style={{ color: "var(--color-muted)" }}>What it is</p>
+          <div className="flex flex-wrap gap-2">
+            {KINDS.map((k) => (
+              <Chip key={k.value} active={kind === k.value} onClick={() => setKind(k.value)}>
+                {k.label}
               </Chip>
             ))}
           </div>
@@ -130,15 +140,11 @@ export function SeriesEditor({ rule, onClose }: { rule?: RecurringRule; onClose:
 
         <Input label="Amount" placeholder="0.00" inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} />
 
-        {type === "transfer" && (
+        {isTransfer && (
           <>
-            <div className="flex gap-2">
-              <Chip active={inflow} onClick={() => setInflow(true)}>Into this account</Chip>
-              <Chip active={!inflow} onClick={() => setInflow(false)}>Out of this account</Chip>
-            </div>
             <div>
               <p className="text-xs font-medium mb-2" style={{ color: "var(--color-muted)" }}>
-                {inflow ? "From account" : "To account"}
+                Paying which account
               </p>
               <div className="flex flex-wrap gap-2">
                 {accounts.filter((a) => a.id !== accountId).map((a) => (
@@ -147,13 +153,14 @@ export function SeriesEditor({ rule, onClose }: { rule?: RecurringRule; onClose:
               </div>
             </div>
             <p className="text-xs" style={{ color: "var(--color-faint)" }}>
-              Both accounts move: this posts on each side. Paying a credit card or
-              loan this way lowers your cash and pays down what you owe.
+              Both accounts move: your cash drops and what you owe is paid down.
+              Interest and escrow are charged separately, so the balance falls by
+              what actually went to principal.
             </p>
           </>
         )}
 
-        {type === "expense" && (
+        {kind === "bill" && (
           <div>
             <p className="text-xs font-medium mb-2" style={{ color: "var(--color-muted)" }}>Category</p>
             <CategoryGrid categories={categories} selectedId={categoryId} onPick={(c) => setCategoryId(c.id)} />
@@ -170,21 +177,22 @@ export function SeriesEditor({ rule, onClose }: { rule?: RecurringRule; onClose:
         </div>
 
         {(freq === "monthly" || freq === "semimonthly") && (
-          <div className="flex gap-3">
-            <div className="flex-1">
-              <Input label="Day of month" inputMode="numeric" value={day1} onChange={(e) => setDay1(e.target.value)} />
-            </div>
-            {freq === "semimonthly" && (
+          <>
+            <div className="flex gap-3">
               <div className="flex-1">
-                <Input label="Second day" inputMode="numeric" value={day2} onChange={(e) => setDay2(e.target.value)} />
+                <Input label="Day of month" inputMode="numeric" value={day1} onChange={(e) => setDay1(e.target.value)} />
               </div>
-            )}
-          </div>
-        )}
-        {(freq === "monthly" || freq === "semimonthly") && (
-          <p className="text-xs -mt-2" style={{ color: "var(--color-faint)" }}>
-            Use 31 for the last day of the month (auto-clamps to 28–31).
-          </p>
+              {freq === "semimonthly" && (
+                <div className="flex-1">
+                  <Input label="Second day" inputMode="numeric" value={day2} onChange={(e) => setDay2(e.target.value)} />
+                </div>
+              )}
+            </div>
+            <p className="text-xs -mt-2" style={{ color: "var(--color-faint)" }}>
+              A hint for ordering, not a deadline — a payment matches whatever
+              day it lands on. Use 31 for the last day of the month.
+            </p>
+          </>
         )}
 
         {(freq === "weekly" || freq === "biweekly") && (
@@ -198,22 +206,13 @@ export function SeriesEditor({ rule, onClose }: { rule?: RecurringRule; onClose:
           </div>
         )}
 
-        <div className="flex gap-3">
-          <div className="flex-1">
-            <Input label="Start date" type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
-          </div>
-          <div className="flex-1">
-            <Input label="End date (optional)" type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
-          </div>
-        </div>
-
         <label className="flex items-center justify-between">
-          <span className="text-sm" style={{ color: "var(--color-text)" }}>Auto-mark reviewed</span>
-          <input type="checkbox" checked={autoReview} onChange={(e) => setAutoReview(e.target.checked)} style={{ accentColor: "var(--color-primary)" }} />
+          <span className="text-sm" style={{ color: "var(--color-text)" }}>Amount varies</span>
+          <input type="checkbox" checked={variable} onChange={(e) => setVariable(e.target.checked)} style={{ accentColor: "var(--color-primary)" }} />
         </label>
-        {rule && (
+        {series && (
           <label className="flex items-center justify-between">
-            <span className="text-sm" style={{ color: "var(--color-text)" }}>Active</span>
+            <span className="text-sm" style={{ color: "var(--color-text)" }}>Still active</span>
             <input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} style={{ accentColor: "var(--color-primary)" }} />
           </label>
         )}
@@ -221,11 +220,11 @@ export function SeriesEditor({ rule, onClose }: { rule?: RecurringRule; onClose:
         {error && <p className="text-sm" style={{ color: "var(--color-danger)" }}>{error}</p>}
 
         <div className="flex gap-3 pt-2">
-          {rule && (
+          {series && (
             <Button variant="ghost" onClick={remove} disabled={del.isPending}>Delete</Button>
           )}
           <Button fullWidth onClick={save} disabled={upsert.isPending}>
-            {upsert.isPending ? "Saving…" : rule ? "Save" : "Add rule"}
+            {upsert.isPending ? "Saving…" : series ? "Save" : "Add"}
           </Button>
         </div>
       </div>

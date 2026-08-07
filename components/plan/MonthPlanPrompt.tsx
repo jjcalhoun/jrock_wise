@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { useMonthPlan } from "@/hooks/useMonthPlan";
+import { usePlanPeriod } from "@/hooks/usePlanPeriod";
 import { MonthPlanSheet } from "@/components/plan/MonthPlanSheet";
 import { currentMonthKey } from "@/lib/format";
 
@@ -10,13 +10,13 @@ import { currentMonthKey } from "@/lib/format";
    without confirming just defers to the next app open. */
 export function MonthPlanPrompt() {
   const month = currentMonthKey();
-  const { data, isLoading } = useMonthPlan(month);
+  const { data, isLoading } = usePlanPeriod(month);
   const [open, setOpen] = useState(false);
   const prompted = useRef(false);
 
   useEffect(() => {
     if (isLoading || prompted.current) return;
-    if (!data?.plan || !data.plan.confirmed_at) {
+    if (!data?.confirmed_at) {
       prompted.current = true;
       setOpen(true);
     }

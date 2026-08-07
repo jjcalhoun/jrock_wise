@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { occurrences, type Schedule } from "./recurring";
+import { occurrences, type Schedule } from "./schedule";
 
 const base: Schedule = { frequency: "monthly", start_date: "2026-01-01" };
 

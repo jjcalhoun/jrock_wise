@@ -8,12 +8,13 @@ import {
   useReviewTransaction,
   useResolveTransfer,
 } from "@/hooks/useSupabaseData";
-import { useUpsertRecurringRule, useRecurringRules } from "@/hooks/useRecurring";
+import { useUpsertSeries, useSeries } from "@/hooks/useSeries";
 import { useCommitmentWindow, useLinkCommitment } from "@/hooks/useCommitments";
 import { rankCommitments, suggestCommitment, orderForDisplay } from "@/lib/commitments/match";
 import { periodWindow } from "@/lib/commitments/period";
 import { selectionFor } from "@/lib/commitments/restore";
 import { commitmentTransferTarget } from "@/lib/commitments/types";
+import { reviewKind } from "@/lib/commitments/series";
 import { monthKey } from "@/lib/aggregations";
 import { CategoryGrid } from "@/components/transactions/CategoryGrid";
 import { Button } from "@/components/ui/Button";
@@ -35,8 +36,8 @@ export function ReviewFlow({ onClose }: { onClose: () => void }) {
   const { data: accounts = [] } = useAccounts();
   const review = useReviewTransaction();
   const resolveTransfer = useResolveTransfer();
-  const upsertRule = useUpsertRecurringRule();
-  const { data: rules = [] } = useRecurringRules();
+  const upsertSeries = useUpsertSeries();
+  const { data: series = [] } = useSeries();
   const linkTxn = useLinkCommitment();
 
   // snapshot the queue once so it stays stable as we review through it
@@ -158,18 +159,21 @@ export function ReviewFlow({ onClose }: { onClose: () => void }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [txn, suggested?.id]);
 
-  // An active rule already covering this merchant — show that instead of the
-  // "repeat" checkbox, so duplicate rules can't be created from review.
+  // A live series already covering this merchant — show that instead of the
+  // "repeat" checkbox. This check is the whole reason the Ooma bill existed
+  // twice: without it, ticking "repeat" on a charge you already had a line for
+  // silently minted a second one, each taking its day from its own spawning
+  // transaction.
   const coveredBy = useMemo(() => {
     if (!txn) return undefined;
     const normed = (txn.merchant || txn.description || "").toLowerCase().replace(/\s+/g, " ").trim();
     if (!normed) return undefined;
-    return rules.find((r) => {
-      if (!r.active || r.account_id !== txn.account_id) return false;
-      const n = r.name.toLowerCase().replace(/\s+/g, " ").trim();
+    return series.find((c) => {
+      if (c.series_ended || c.account_id !== txn.account_id) return false;
+      const n = c.name.toLowerCase().replace(/\s+/g, " ").trim();
       return !!n && (n === normed || n.includes(normed) || normed.includes(n));
     });
-  }, [txn, rules]);
+  }, [txn, series]);
 
   function pickTransferAccount(id: string) {
     setTransferAccountId(id);
@@ -212,28 +216,27 @@ export function ReviewFlow({ onClose }: { onClose: () => void }) {
     if (commitmentIds[0] !== (txn.commitment_id ?? null) || commitmentIds.length > 1) {
       await linkTxn.mutateAsync({ txnId: txn.id, commitmentId: commitmentIds });
     }
-    // Optionally create a recurring rule from this transaction (future occurrences only).
+    // Optionally turn this into a recurring plan line.
     if (makeRecurring && type !== "refund" && !coveredBy) {
       const d = new Date(`${txn.date}T00:00:00Z`);
-      await upsertRule.mutateAsync({
-        name: txn.merchant || txn.description || "Recurring",
-        account_id: txn.account_id,
-        type: type as "expense" | "income" | "transfer",
-        amount: txn.amount,
-        transfer_account_id: type === "transfer" ? transferAccountId || null : null,
-        category_id: type === "expense" ? categoryId || null : null,
-        bucket: type === "expense" ? bucket : null,
-        frequency: recurFreq,
-        day_of_month: recurFreq === "monthly" ? d.getUTCDate() : null,
-        weekday: recurFreq === "weekly" || recurFreq === "biweekly" ? d.getUTCDay() : null,
-        interval: 1,
-        start_date: txn.date,
-        last_generated: todayISO(),
-        auto_review: true,
-        active: true,
+      await upsertSeries.mutateAsync({
+        period: txn.date.slice(0, 7),
+        input: {
+          name: txn.merchant || txn.description || "Recurring",
+          kind: reviewKind(type, transferAccountId, accounts),
+          amount: Math.abs(txn.amount),
+          account_id: txn.account_id,
+          transfer_account_id: type === "transfer" ? transferAccountId || null : null,
+          category_id: type === "expense" ? categoryId || null : null,
+          bucket: type === "expense" ? bucket : null,
+          frequency: recurFreq,
+          day_of_month: recurFreq === "monthly" ? d.getUTCDate() : null,
+          weekday: recurFreq === "weekly" || recurFreq === "biweekly" ? d.getUTCDay() : null,
+          interval: 1,
+        },
         // Link this transaction to the occurrence it represents (unless the
         // user already picked planned payments above).
-        ...(commitmentIds.length === 0 ? { _sourceTxn: { id: txn.id, date: txn.date } } : {}),
+        ...(commitmentIds.length === 0 ? { sourceTxn: { id: txn.id, date: txn.date } } : {}),
       });
     }
     setIndex((i) => i + 1);
