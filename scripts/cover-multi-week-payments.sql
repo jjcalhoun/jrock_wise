@@ -7,24 +7,37 @@
 -- zero), but payments made BEFORE that shipped only ever got their primary
 -- link. Their second week still reads unpaid, forever.
 --
--- This finds those and finishes the job. A payment qualifies when:
+-- A payment qualifies when:
 --   * it is already linked to a commitment (transactions.commitment_id), and
 --   * its magnitude is at least 1.8x that commitment's planned amount, so it
 --     plainly paid more than one occurrence, and
---   * the NEXT occurrence in the same series is still unsettled — nothing
---     linked to it, not skipped, not already covered.
+--   * the occurrences IMMEDIATELY AFTER its own are still open.
 --
--- It covers as many following occurrences as the money stretches to, taking
--- them in date order, and never spends more than the payment was worth.
+-- ---------------------------------------------------------------------------
+-- That last word — immediately — is the whole correctness argument, and the
+-- first draft of this script got it wrong. It looked for the next *unsettled*
+-- occurrence, which let a payment reach forward across weeks that were already
+-- settled and land on one months away. Two separate $412 payments both
+-- selected the same August commitment; whichever the UPDATE reached second
+-- would have won, silently, and one payment's coverage would have vanished.
+--
+-- Contiguity fixes both halves at once. A payment only ever looks at the weeks
+-- directly following its own, so two payments cannot select the same week, and
+-- a payment whose next week is ALREADY settled covers nothing — because its
+-- extra money is evidently already accounted for. Doing nothing is the correct
+-- answer there, and the old version could not express it.
+-- ---------------------------------------------------------------------------
 --
 -- NO TRANSACTIONS ARE TOUCHED. The only write is `commitments.covered_by`,
 -- which is reversible: `update commitments set covered_by = null where ...`.
 --
--- USAGE: run STEP 1 alone and read it. If the pairings look right, run STEP 2.
+-- USAGE: run this and read it. Every row should name a DISTINCT cover_id —
+-- if one appears twice, stop, because two payments cannot settle one week.
+-- Then run cover-multi-week-payments-apply.sql beside it.
 -- ============================================================================
 
 -- ----------------------------------------------------------------------------
--- STEP 1 — report. What would be covered, and by what.
+-- Report: what would be covered, and by what.
 -- ----------------------------------------------------------------------------
 with payment as (
   select
@@ -34,85 +47,52 @@ with payment as (
     c.id            as primary_id,
     c.series_id,
     c.name,
-    abs(c.amount)   as per_occurrence
+    abs(c.amount)   as per_occurrence,
+    coalesce(c.due_hint, (c.period || '-01')::date) as primary_due
   from public.transactions t
   join public.commitments c on c.id = t.commitment_id
   where t.amount <> 0
     and abs(c.amount) > 0
     and abs(t.amount) >= abs(c.amount) * 1.8
 ),
--- occurrences after the one the payment is linked to, in date order
+-- Every occurrence after the payment's own, in date order — settled ones
+-- INCLUDED, because their position is what makes "immediately after" mean
+-- anything. Excluding them is exactly how the first draft reached too far.
 follower as (
   select
     p.txn_id,
     p.name,
     p.paid,
     p.per_occurrence,
-    f.id   as cover_id,
+    p.paid_on,
+    f.id          as cover_id,
     f.due_hint,
+    f.skipped,
+    f.covered_by,
+    exists (select 1 from public.transactions x where x.commitment_id = f.id) as settled,
     row_number() over (
       partition by p.txn_id
-      order by f.due_hint nulls last, f.period, f.seq
-    ) as rn
+      order by coalesce(f.due_hint, (f.period || '-01')::date), f.period, f.seq
+    ) as step
   from payment p
   join public.commitments f
     on  f.series_id = p.series_id
     and f.id <> p.primary_id
-    and f.skipped = false
-    and f.covered_by is null
-    and coalesce(f.due_hint, (f.period || '-01')::date) >= coalesce(
-          (select due_hint from public.commitments where id = p.primary_id),
-          (select (period || '-01')::date from public.commitments where id = p.primary_id)
-        )
-    -- unsettled: no payment of its own
-    and not exists (
-      select 1 from public.transactions x where x.commitment_id = f.id
-    )
+    and coalesce(f.due_hint, (f.period || '-01')::date) >= p.primary_due
 )
 select
   txn_id,
   name,
+  paid_on,
   paid            as payment_amount,
   per_occurrence  as planned_each,
   cover_id,
   due_hint        as would_be_marked_covered
 from follower
--- only as many extra weeks as the payment actually covers
-where rn <= floor(paid / per_occurrence) - 1
+-- only as many extra weeks as the payment actually covers ...
+where step <= floor(paid / per_occurrence) - 1
+  -- ... and only while those weeks are genuinely still open
+  and not settled
+  and covered_by is null
+  and skipped = false
 order by name, due_hint;
-
--- ----------------------------------------------------------------------------
--- STEP 2 — apply. Same query, written down.
--- ----------------------------------------------------------------------------
--- begin;
---
--- with payment as (
---   select t.id as txn_id, abs(t.amount) as paid, c.id as primary_id,
---          c.series_id, abs(c.amount) as per_occurrence
---   from public.transactions t
---   join public.commitments c on c.id = t.commitment_id
---   where t.amount <> 0 and abs(c.amount) > 0
---     and abs(t.amount) >= abs(c.amount) * 1.8
--- ),
--- follower as (
---   select p.txn_id, p.paid, p.per_occurrence, f.id as cover_id,
---          row_number() over (partition by p.txn_id
---                             order by f.due_hint nulls last, f.period, f.seq) as rn
---   from payment p
---   join public.commitments f
---     on  f.series_id = p.series_id
---     and f.id <> p.primary_id
---     and f.skipped = false
---     and f.covered_by is null
---     and coalesce(f.due_hint, (f.period || '-01')::date) >= coalesce(
---           (select due_hint from public.commitments where id = p.primary_id),
---           (select (period || '-01')::date from public.commitments where id = p.primary_id))
---     and not exists (select 1 from public.transactions x where x.commitment_id = f.id)
--- )
--- update public.commitments c
--- set covered_by = f.txn_id, updated_at = now()
--- from follower f
--- where c.id = f.cover_id
---   and f.rn <= floor(f.paid / f.per_occurrence) - 1;
---
--- commit;
