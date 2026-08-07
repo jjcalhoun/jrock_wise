@@ -31,12 +31,13 @@
 -- NO TRANSACTIONS ARE TOUCHED. The only write is `commitments.covered_by`,
 -- which is reversible: `update commitments set covered_by = null where ...`.
 --
--- USAGE: run STEP 1 alone and read it. Every row should name a DISTINCT
--- cover_id — if a cover_id appears twice, stop and say so. Then run STEP 2.
+-- USAGE: run this and read it. Every row should name a DISTINCT cover_id —
+-- if one appears twice, stop, because two payments cannot settle one week.
+-- Then run cover-multi-week-payments-apply.sql beside it.
 -- ============================================================================
 
 -- ----------------------------------------------------------------------------
--- STEP 1 — report. What would be covered, and by what.
+-- Report: what would be covered, and by what.
 -- ----------------------------------------------------------------------------
 with payment as (
   select
@@ -95,43 +96,3 @@ where step <= floor(paid / per_occurrence) - 1
   and covered_by is null
   and skipped = false
 order by name, due_hint;
-
--- ----------------------------------------------------------------------------
--- STEP 2 — apply. Same query, written down.
--- ----------------------------------------------------------------------------
--- begin;
---
--- with payment as (
---   select t.id as txn_id, abs(t.amount) as paid, c.id as primary_id,
---          c.series_id, abs(c.amount) as per_occurrence,
---          coalesce(c.due_hint, (c.period || '-01')::date) as primary_due
---   from public.transactions t
---   join public.commitments c on c.id = t.commitment_id
---   where t.amount <> 0 and abs(c.amount) > 0
---     and abs(t.amount) >= abs(c.amount) * 1.8
--- ),
--- follower as (
---   select p.txn_id, p.paid, p.per_occurrence, f.id as cover_id,
---          f.skipped, f.covered_by,
---          exists (select 1 from public.transactions x
---                   where x.commitment_id = f.id) as settled,
---          row_number() over (
---            partition by p.txn_id
---            order by coalesce(f.due_hint, (f.period || '-01')::date),
---                     f.period, f.seq) as step
---   from payment p
---   join public.commitments f
---     on  f.series_id = p.series_id
---     and f.id <> p.primary_id
---     and coalesce(f.due_hint, (f.period || '-01')::date) >= p.primary_due
--- )
--- update public.commitments c
--- set covered_by = f.txn_id, updated_at = now()
--- from follower f
--- where c.id = f.cover_id
---   and f.step <= floor(f.paid / f.per_occurrence) - 1
---   and not f.settled
---   and f.covered_by is null
---   and f.skipped = false;
---
--- commit;

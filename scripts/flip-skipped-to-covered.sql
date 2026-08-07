@@ -22,7 +22,7 @@
 -- ============================================================================
 
 -- ----------------------------------------------------------------------------
--- STEP 1 — confirm it's the row we mean, and that the payer is real.
+-- Confirm it's the row we mean, and that the payer is real.
 -- ----------------------------------------------------------------------------
 select
   c.id            as commitment_id,
@@ -40,24 +40,3 @@ cross join public.transactions t
 where c.name ilike '%child support%'
   and c.due_hint = date '2026-07-24'
   and t.id = 'ee303af8-66c8-4fa9-b652-4c0988a4a46f'::uuid;
-
--- ----------------------------------------------------------------------------
--- STEP 2 — apply. Guarded: it only touches a row that is still skipped and
--- still uncovered, so running it twice is a no-op.
--- ----------------------------------------------------------------------------
--- begin;
---
--- update public.commitments c
--- set covered_by = 'ee303af8-66c8-4fa9-b652-4c0988a4a46f'::uuid,
---     skipped    = false,
---     updated_at = now()
--- where c.name ilike '%child support%'
---   and c.due_hint = date '2026-07-24'
---   and c.skipped
---   and c.covered_by is null
---   -- never cover a week that has a payment of its own
---   and not exists (
---     select 1 from public.transactions x where x.commitment_id = c.id
---   );
---
--- commit;
