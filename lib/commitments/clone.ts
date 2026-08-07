@@ -1,4 +1,4 @@
-import { occurrences } from "@/lib/recurring";
+import { occurrences } from "@/lib/schedule";
 import type { Commitment } from "./types";
 
 /* Clone-forward: materialize a period from the live series.

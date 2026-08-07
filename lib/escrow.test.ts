@@ -1,0 +1,108 @@
+import { describe, it, expect, beforeEach } from "vitest";
+import type { SupabaseClient } from "@supabase/supabase-js";
+import { createDemoClient } from "@/lib/demo/client";
+import { postEscrow } from "./escrow";
+
+/* Escrow is the last thing the recurring generator was kept alive for, so
+   these mostly pin that it took the job over intact — and that it is an
+   ACCOUNT charge, not a payment: it posts whether or not you paid this month,
+   and it never becomes spend, because the mortgage payment already was. */
+
+const db = createDemoClient() as unknown as SupabaseClient;
+const U = "escrow-user";
+
+const account = (over: Record<string, unknown>) => ({
+  user_id: U,
+  type: "loan",
+  starting_balance: -120000,
+  as_of_date: "2026-05-31",
+  apr: 0,
+  statement_day: 1,
+  escrow_amount: 230.91,
+  ...over,
+});
+
+async function reset() {
+  await db.from("transactions").delete().eq("user_id", U);
+  await db.from("accounts").delete().eq("user_id", U);
+  await db.from("simplefin_account_map").delete().eq("user_id", U);
+}
+
+const rows = async () => {
+  const { data } = await db.from("transactions").select("*").eq("user_id", U);
+  return data ?? [];
+};
+
+describe("postEscrow", () => {
+  beforeEach(reset);
+
+  it("posts one charge per missed statement, oldest first", async () => {
+    await db.from("accounts").insert(account({ id: "mortgage", name: "Mortgage" }));
+    const r = await postEscrow(db, U);
+    // as_of 5/31, statement on the 1st: June, July and August have all passed
+    expect(r.errors).toEqual([]);
+    expect(r.inserted).toBeGreaterThanOrEqual(2);
+    const posted = await rows();
+    expect(posted.every((t) => t.amount === -230.91)).toBe(true);
+    expect(posted.every((t) => t.account_id === "mortgage")).toBe(true);
+  });
+
+  it("increases what's owed, offsetting the payment's over-credit", async () => {
+    // the payment transfers the FULL $583.57 into the loan; without this the
+    // balance would fall three times faster than the real one
+    await db.from("accounts").insert(account({ id: "m2", name: "Mortgage" }));
+    await postEscrow(db, U);
+    const posted = await rows();
+    expect(posted[0].amount).toBeLessThan(0);
+  });
+
+  it("is idempotent — running twice posts nothing new", async () => {
+    await db.from("accounts").insert(account({ id: "m3", name: "Mortgage" }));
+    const first = await postEscrow(db, U);
+    const second = await postEscrow(db, U);
+    expect(second.inserted).toBe(0);
+    expect((await rows()).length).toBe(first.inserted);
+  });
+
+  it("posts no split, so it never counts as spend", async () => {
+    // the money left your pocket once, in the mortgage payment; spend is
+    // computed from splits, so having none keeps it out of the budget
+    await db.from("accounts").insert(account({ id: "m4", name: "Mortgage" }));
+    await postEscrow(db, U);
+    const ids = (await rows()).map((t) => t.id);
+    const { data: splits } = await db
+      .from("transaction_splits")
+      .select("*")
+      .in("transaction_id", ids);
+    expect(splits ?? []).toEqual([]);
+  });
+
+  it("skips statements already inside the entered balance", async () => {
+    // a balance entered as of today has every past statement in it already
+    await db.from("accounts").insert(
+      account({ id: "m5", name: "Mortgage", as_of_date: "2099-01-01" }),
+    );
+    expect((await postEscrow(db, U)).inserted).toBe(0);
+  });
+
+  it("leaves a synced loan alone — the bank sends the real split", async () => {
+    await db.from("accounts").insert(account({ id: "m6", name: "Mortgage" }));
+    await db
+      .from("simplefin_account_map")
+      .insert({ user_id: U, account_id: "m6", connection_id: "c", simplefin_account_id: "x" });
+    expect((await postEscrow(db, U)).inserted).toBe(0);
+  });
+
+  it("ignores an account with no escrow set", async () => {
+    await db.from("accounts").insert(account({ id: "m7", name: "Car loan", escrow_amount: 0 }));
+    expect((await postEscrow(db, U)).inserted).toBe(0);
+  });
+
+  it("ignores non-loan accounts even if a figure is set", async () => {
+    // escrow is a mortgage idea; a card with a stray value shouldn't accrue one
+    await db
+      .from("accounts")
+      .insert(account({ id: "m8", name: "Visa", type: "credit", escrow_amount: 50 }));
+    expect((await postEscrow(db, U)).inserted).toBe(0);
+  });
+});

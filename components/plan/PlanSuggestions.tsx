@@ -3,13 +3,15 @@
 import { useMemo } from "react";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
-import { useTransactions } from "@/hooks/useSupabaseData";
+import { useTransactions, useAccounts } from "@/hooks/useSupabaseData";
 import {
-  useRecurringRules,
-  useUpsertRecurringRule,
+  useSeries,
+  useUpsertSeries,
   useDismissedSuggestions,
   useDismissSuggestion,
-} from "@/hooks/useRecurring";
+} from "@/hooks/useSeries";
+import { kindToType } from "@/lib/commitments/series";
+import type { CommitmentKind } from "@/lib/commitments/types";
 import { findDuplicateSeries, type SeriesLike } from "@/lib/commitments/duplicates";
 import { detectRecurring, type RecurringSuggestion } from "@/lib/recurringDetect";
 import { fmt } from "@/lib/format";
@@ -22,46 +24,89 @@ import { fmt } from "@/lib/format";
    rules for one bill quietly double-count it, and the only way it was ever
    found was by reading the database. */
 
-export function PlanSuggestions({ onEdit }: { onEdit: (ruleId: string) => void }) {
+/* A detected transfer says where the money went; the destination account says
+   what that means. Paying a loan is a debt payment, not savings — and getting
+   that wrong is exactly how five loans ended up accruing interest with nothing
+   posted against them. */
+function suggestionKind(
+  s: RecurringSuggestion,
+  accountType: (id: string | null) => string | undefined,
+): CommitmentKind {
+  if (s.type === "income") return "income";
+  if (s.type !== "transfer") return "bill";
+  switch (accountType(s.transfer_account_id)) {
+    case "loan":
+      return "debt";
+    case "credit":
+      return "cc_payment";
+    case "savings":
+      return "savings";
+    default:
+      return "bill";
+  }
+}
+
+export function PlanSuggestions({
+  period,
+  onEdit,
+}: {
+  period: string;
+  onEdit: (seriesId: string) => void;
+}) {
   const { data: transactions = [] } = useTransactions();
-  const { data: rules = [] } = useRecurringRules();
+  const { data: accounts = [] } = useAccounts();
+  const { data: series = [] } = useSeries();
   const { data: dismissed } = useDismissedSuggestions();
-  const upsert = useUpsertRecurringRule();
+  const upsert = useUpsertSeries();
   const dismiss = useDismissSuggestion();
 
+  // What already has a plan line, in the shape detection compares against.
+  const planned = useMemo(
+    () =>
+      series
+        .filter((c) => !!c.account_id)
+        .map((c) => ({
+          account_id: c.account_id as string,
+          type: kindToType(c.kind, c.transfer_account_id),
+          name: c.name,
+          active: !c.series_ended,
+        })),
+    [series],
+  );
+
   const suggestions = useMemo(
-    () => detectRecurring(transactions, rules, new Set(dismissed ?? [])),
-    [transactions, rules, dismissed],
+    () => detectRecurring(transactions, planned, new Set(dismissed ?? [])),
+    [transactions, planned, dismissed],
   );
 
   const duplicates = useMemo(() => {
-    const series: SeriesLike[] = rules.map((r) => ({
-      id: r.id,
-      name: r.name,
-      account_id: r.account_id,
-      amount: r.amount,
-      frequency: r.frequency,
-      live: r.active,
+    const rows: SeriesLike[] = series.map((c) => ({
+      id: c.series_id,
+      name: c.name,
+      account_id: c.account_id ?? "",
+      amount: c.amount,
+      frequency: c.frequency,
+      live: !c.series_ended,
     }));
-    return findDuplicateSeries(series);
-  }, [rules]);
+    return findDuplicateSeries(rows);
+  }, [series]);
 
   function add(s: RecurringSuggestion) {
     upsert.mutate({
-      name: s.name,
-      account_id: s.account_id,
-      type: s.type,
-      amount: s.amount,
-      transfer_account_id: s.transfer_account_id,
-      category_id: s.category_id,
-      bucket: s.bucket,
-      frequency: s.frequency,
-      day_of_month: s.day_of_month,
-      weekday: s.weekday,
-      interval: 1,
-      start_date: s.lastDate,
-      active: true,
-      auto_review: true,
+      period,
+      input: {
+        name: s.name,
+        kind: suggestionKind(s, (id) => accounts.find((a) => a.id === id)?.type),
+        amount: Math.abs(s.amount),
+        account_id: s.account_id,
+        transfer_account_id: s.transfer_account_id,
+        category_id: s.category_id,
+        bucket: s.bucket,
+        frequency: s.frequency,
+        day_of_month: s.day_of_month,
+        weekday: s.weekday,
+        interval: 1,
+      },
     });
   }
 

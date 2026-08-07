@@ -129,10 +129,8 @@ export function buildSeed(todayIso: string): DemoTables {
     categories: [],
     transactions: [],
     transaction_splits: [],
-    recurring_rules: [],
-    month_plans: [],
-    month_plan_items: [],
     commitments: [],
+    plan_periods: [],
     budget_plan: [],
     category_budgets: [],
     settings: [],
@@ -161,25 +159,6 @@ export function buildSeed(todayIso: string): DemoTables {
     user_id: U, is_archived: false, sort_order: i, ...stamp, ...c,
   }));
 
-  t.recurring_rules = RULES.map((r) => ({
-    user_id: U,
-    transfer_account_id: r.transfer_account_id ?? null,
-    category_id: r.category_id ?? null,
-    bucket: r.bucket ?? null,
-    day_of_month: r.day_of_month ?? null,
-    day_of_month_2: null,
-    weekday: r.weekday ?? null,
-    interval: 1,
-    start_date: iso(historyStart),
-    end_date: null,
-    auto_review: true,
-    last_generated: todayIso,
-    active: true,
-    ...stamp,
-    ...r,
-    variable: undefined, // not a rule column
-  }));
-
   t.budget_plan = [{ user_id: U, income: 4720, plan_needs: 50, plan_wants: 30, plan_savings: 20, updated_at: stamp.updated_at }];
   t.settings = [{
     user_id: U, theme_mode: "system", debt_strategy: "avalanche", debt_extra: 100,
@@ -203,7 +182,7 @@ export function buildSeed(todayIso: string): DemoTables {
       id, user_id: U, merchant: null, description: null, type: "expense",
       transfer_account_id: null, transfer_group_id: null, bucket: null, notes: null,
       source: "sync", external_id: null, import_batch_id: null, reviewed: true,
-      plan_item_id: null, commitment_id: null, ...stamp, ...row,
+      commitment_id: null, ...stamp, ...row,
     });
     return id;
   };
@@ -214,9 +193,11 @@ export function buildSeed(todayIso: string): DemoTables {
     });
   };
 
-  /* rule-generated rows: history up to TODAY only.
+  /* the payments that already happened: history up to TODAY only.
      The plan commits the whole month through its commitments; posting
-     transactions ahead of their date would read as money already moved. */
+     transactions ahead of their date would read as money already moved.
+     Nothing generates these in the app any anymore — a real account gets them
+     from the bank, a manual one when you confirm — but a demo needs a past. */
   const rnd0 = prng(dayNum(todayIso.slice(0, 8) + "01"));
   for (const rule of RULES) {
     for (const date of ruleDates(rule, historyStart, today)) {
@@ -270,11 +251,11 @@ export function buildSeed(todayIso: string): DemoTables {
   }
 
   /* current month's commitments (confirmed on the 1st) + explicit links.
-     One row per occurrence, keyed by (series, period, seq) — the rule's id
-     doubles as its series_id, exactly as the phase-1 backfill does. */
-  const planId = nid();
-  t.month_plans = [{
-    id: planId, user_id: U, month, confirmed_at: `${month}-01T13:00:00Z`, ...stamp,
+     One row per occurrence, keyed by (series, period, seq). RULES below is a
+     description of the demo persona's life, not a table — recurring_rules is
+     gone, and each series exists solely as its own commitments. */
+  t.plan_periods = [{
+    id: nid(), user_id: U, period: month, confirmed_at: `${month}-01T13:00:00Z`, ...stamp,
   }];
   const destKind: Record<string, string> = { "acc-loan": "debt", "acc-cc": "cc_payment", "acc-sav": "savings" };
   for (const rule of RULES) {

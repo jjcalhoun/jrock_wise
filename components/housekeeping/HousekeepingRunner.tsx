@@ -1,30 +1,30 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { useGenerateRecurring } from "@/hooks/useRecurring";
+import { usePostCharges } from "@/hooks/useCharges";
 import { useSimplefinConnections, useSyncSimplefin } from "@/hooks/useSimplefin";
 import { isDemo } from "@/lib/demo/isDemo";
 
 /* Background housekeeping, once per app load — renders nothing.
-   - Fires the recurring generator so due transactions appear without waiting
-     for the daily cron.
+   - Posts the carrying charges a manual liability account accrues on its own
+     (interest, escrow) without waiting for the daily cron.
    - Kicks off a SimpleFIN sync when the newest sync is older than the
      throttle window, so opening the app is enough to pull fresh bank data. */
 
 const SYNC_THROTTLE_MS = 4 * 60 * 60 * 1000; // at most every 4 hours
 
-export function RecurringRunner() {
-  const generate = useGenerateRecurring();
+export function HousekeepingRunner() {
+  const charges = usePostCharges();
   const sync = useSyncSimplefin();
   const { data: connections } = useSimplefinConnections();
-  const ranGenerate = useRef(false);
+  const ranCharges = useRef(false);
   const ranSync = useRef(false);
 
   useEffect(() => {
-    if (isDemo || ranGenerate.current) return; // demo: the seed IS the generator
-    ranGenerate.current = true;
-    generate.mutate();
-  }, [generate]);
+    if (isDemo || ranCharges.current) return; // demo: the seed is already whole
+    ranCharges.current = true;
+    charges.mutate();
+  }, [charges]);
 
   useEffect(() => {
     if (isDemo || ranSync.current || !connections || connections.length === 0) return;
