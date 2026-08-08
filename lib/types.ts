@@ -109,6 +109,8 @@ export interface Settings {
   debt_extra: number;
   debt_surplus?: number | null; // editable surplus; null → 3-month average
   autocategorize_imports: boolean;
+  /** spend view: card purchases reduce free-to-spend, the card payment counts zero */
+  count_card_purchases: boolean;
   investments_balance: number;
   investments_return: number;
   invest_monthly: number;

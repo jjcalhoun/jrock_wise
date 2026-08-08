@@ -61,9 +61,18 @@ export function LedgerSheet({
               <Row
                 key={i.id}
                 name={i.name}
-                sub={i.status === "paid" ? "paid" : "upcoming"}
-                value={fmt(i.effective)}
-                dim={i.status !== "paid"}
+                // A carried card payment counts zero because its purchases were
+                // counted instead. Left unexplained it reads as $0.00 upcoming,
+                // which looks like a bug rather than the other half of a trade.
+                sub={
+                  i.carried
+                    ? "counted as card spending"
+                    : i.status === "paid"
+                      ? "paid"
+                      : "upcoming"
+                }
+                value={i.carried ? fmt(i.amount) : fmt(i.effective)}
+                dim={i.carried || i.status !== "paid"}
               />
             ))}
           </Section>
