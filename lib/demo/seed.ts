@@ -162,7 +162,8 @@ export function buildSeed(todayIso: string): DemoTables {
   t.budget_plan = [{ user_id: U, income: 4720, plan_needs: 50, plan_wants: 30, plan_savings: 20, updated_at: stamp.updated_at }];
   t.settings = [{
     user_id: U, theme_mode: "system", debt_strategy: "avalanche", debt_extra: 100,
-    debt_surplus: null, autocategorize_imports: true, investments_balance: 18500,
+    debt_surplus: null, autocategorize_imports: true, count_card_purchases: true,
+    investments_balance: 18500,
     investments_return: 7, invest_monthly: 300, invest_employer_match: 150,
     invest_current_age: 32, invest_retire_age: 62, surplus_savings_pct: 50,
     surplus_investments_pct: 50, import_start_date: null, updated_at: stamp.updated_at,

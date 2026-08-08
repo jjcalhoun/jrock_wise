@@ -22,8 +22,27 @@ import type { Commitment, CommitmentKind } from "./types";
  *     31st that clears on the 1st lands in the month that expected it. Only
  *     unlinked spending is bucketed by its own date.
  *
- * Cash view: credit-card PURCHASES don't reduce free-to-spend (the monthly card
- * payment commitment carries them). Transfers between cash accounts are neutral.
+ * TWO VIEWS OF A CREDIT CARD, and the whole point is that they never overlap.
+ *
+ *   CASH  — when did money leave your pocket? A card purchase doesn't reduce
+ *           free-to-spend; the monthly card payment does. True to your bank
+ *           balance, but a week of swiping shows up as nothing at all, and
+ *           spending on a card with no payment line vanishes entirely.
+ *
+ *   SPEND — what have you committed this month? A card purchase reduces
+ *           free-to-spend the moment it posts, and the card payment then counts
+ *           ZERO, because charging it and paying it are one event seen twice.
+ *
+ * The invariant is that exactly one of the pair is counted, never both and
+ * never neither. Counting both charges you twice for one dinner; counting
+ * neither is the hole that made $316 of card spending invisible.
+ *
+ * LOAN accounts are excluded from spending in BOTH views. Interest and escrow
+ * post as charges against the loan, but they are consequences of a payment
+ * that already counted — they belong in the category rollup (so escrow shows
+ * under Housing) and nowhere near free-to-spend.
+ *
+ * Transfers between cash accounts are neutral in both.
  */
 
 export interface LedgerItem {
@@ -38,6 +57,8 @@ export interface LedgerItem {
   excluded: boolean;
   /** settled by a payment that primarily fulfills another occurrence */
   coveredBy?: string | null;
+  /** a card payment counting zero because its purchases were counted instead */
+  carried?: boolean;
   status: "expected" | "paid";
   /** signed actual from linked transactions (null until something links) */
   actual: number | null;
@@ -65,6 +86,12 @@ export interface LedgerContext {
   savingsAccountIds: Set<string>;
 }
 
+export interface LedgerOptions {
+  /** SPEND view: count card purchases when they post, and stop counting the
+   *  card payment that would otherwise carry them. Default false (cash view). */
+  countCardPurchases?: boolean;
+}
+
 /** Signed actual from linked transactions. A two-sided transfer may have either
  *  or both legs linked; prefer the outflow legs so a pair isn't double-counted. */
 function linkedActual(kind: CommitmentKind, linked: Transaction[]): number | null {
@@ -80,7 +107,9 @@ export function ledger(
   transactions: Transaction[],
   period: string,
   ctx: LedgerContext,
+  opts: LedgerOptions = {},
 ): Ledger {
+  const spendView = opts.countCardPurchases ?? false;
   const inPeriod = commitments.filter((c) => c.period === period);
   const ids = new Set(inPeriod.map((c) => c.id));
 
@@ -104,9 +133,12 @@ export function ledger(
     // A week settled by someone else's lump payment counts ZERO here: the
     // primary line carries the whole amount, so the cash lands once.
     const covered = !!c.covered_by;
+    // In the spend view the purchases already counted, so counting the payment
+    // too would charge the same dinner twice.
+    const carried = spendView && c.kind === "cc_payment";
     const actual = covered ? 0 : linkedActual(c.kind, linked);
-    const effective = c.skipped || covered ? 0 : (actual ?? c.amount);
-    if (!c.skipped && !covered) {
+    const effective = c.skipped || covered || carried ? 0 : (actual ?? c.amount);
+    if (!c.skipped && !covered && !carried) {
       if (c.kind === "income") {
         expectedIncome += c.amount;
         incomeEffective += effective;
@@ -125,6 +157,7 @@ export function ledger(
       variable: c.variable,
       excluded: c.skipped,
       coveredBy: c.covered_by ?? null,
+      carried,
       status: covered || actual !== null ? "paid" : "expected",
       actual,
       effective,
@@ -144,26 +177,33 @@ export function ledger(
       continue;
     }
     if (t.type === "transfer") {
-      // Cash view: money landing in a loan/credit/savings account is cash
-      // committed. Count the destination leg only, so a pair counts once.
+      // Money landing in a loan/credit/savings account is cash committed.
+      // Count the destination leg only, so a pair counts once. A card payment
+      // is skipped in the spend view for the same reason its commitment is:
+      // the purchases it settles have already been counted.
+      const toCard = ctx.creditAccountIds.has(t.account_id);
       if (
         t.amount > 0 &&
+        !(spendView && toCard) &&
         (ctx.loanAccountIds.has(t.account_id) ||
-          ctx.creditAccountIds.has(t.account_id) ||
+          toCard ||
           ctx.savingsAccountIds.has(t.account_id))
       ) {
         discretionary += t.amount;
       }
       continue;
     }
-    // Expense / refund via splits. The cash view skips anything charged to a
-    // LIABILITY account, because no cash left your pocket when it posted:
-    //   - credit-card purchases are carried by the monthly card payment;
-    //   - interest and escrow on a loan are consequences of a payment that
-    //     already counted, so counting their splits again would double-charge
-    //     free-to-spend. They still reach the category rollup, which is what
-    //     puts mortgage escrow in Housing without inflating spending.
-    if (ctx.creditAccountIds.has(t.account_id) || ctx.loanAccountIds.has(t.account_id)) continue;
+    // Expense / refund via splits.
+    //
+    // A LOAN account is skipped in both views: interest and escrow are
+    // consequences of a payment that already counted, so counting their splits
+    // again would double-charge free-to-spend. They still reach the category
+    // rollup, which is what puts mortgage escrow under Housing without
+    // inflating spending.
+    if (ctx.loanAccountIds.has(t.account_id)) continue;
+    // A CARD purchase counts in the spend view and not in the cash one — the
+    // card payment takes the opposite side of that trade above.
+    if (!spendView && ctx.creditAccountIds.has(t.account_id)) continue;
     for (const split of t.splits ?? []) discretionary += -split.amount;
   }
 

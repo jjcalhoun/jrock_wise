@@ -8,6 +8,8 @@ import {
   useBudget,
   useCategoryBudgets,
   useAccountBalances,
+  useSettings,
+  useUpdateSettings,
 } from "@/hooks/useSupabaseData";
 import { useCommitments } from "@/hooks/useCommitments";
 import { useTxnWindow } from "@/components/providers";
@@ -45,6 +47,8 @@ export function HomeScreen() {
   const { data: accounts = [], isLoading: la } = useAccounts();
   const { data: categories = [] } = useCategories();
   const { data: transactions = [], isLoading: lt } = useTransactions();
+  const { data: settings } = useSettings();
+  const updateSettings = useUpdateSettings();
   const { data: budget } = useBudget();
   const { data: categoryBudgets = {} } = useCategoryBudgets();
   const { data: balances = {} } = useAccountBalances();
@@ -93,15 +97,27 @@ export function HomeScreen() {
 
   /* ---- the free-to-spend ledger ---- */
   const { data: commitments = [] } = useCommitments(month);
+  // Cards: count the purchases, or count the payment that settles them —
+  // never both. See lib/commitments/ledger.ts.
+  const countCards = settings?.count_card_purchases ?? true;
   const led = useMemo(
     () =>
-      buildLedger(commitments, transactions, month, {
-        creditAccountIds: creditIds,
-        loanAccountIds: loanIds,
-        savingsAccountIds: savingsIds,
-      }),
-    [commitments, transactions, month, creditIds, loanIds, savingsIds],
+      buildLedger(
+        commitments,
+        transactions,
+        month,
+        {
+          creditAccountIds: creditIds,
+          loanAccountIds: loanIds,
+          savingsAccountIds: savingsIds,
+        },
+        { countCardPurchases: countCards },
+      ),
+    [commitments, transactions, month, creditIds, loanIds, savingsIds, countCards],
   );
+
+  // Only worth offering when there is a card in play at all.
+  const hasCards = creditIds.size > 0;
 
   // Gauge scale: expected income from the ledger; sensible fallbacks while a
   // plan doesn't exist yet (fresh month, or months before plans existed).
@@ -272,6 +288,12 @@ export function HomeScreen() {
           onPetalClick={onPetalClick}
           onCenterClick={isCurrent ? () => setSheet("ledger") : undefined}
         />
+        {isCurrent && hasCards && (
+          <CardSpendToggle
+            on={countCards}
+            onChange={(v) => updateSettings.mutate({ count_card_purchases: v })}
+          />
+        )}
       </Card>
 
       {/* Review queue */}
@@ -544,5 +566,53 @@ function FlowBar({
         {fmt0(value)}
       </span>
     </div>
+  );
+}
+
+/* Which side of the card trade free-to-spend counts.
+ *
+ * Both readings are honest, and they must never overlap — see
+ * lib/commitments/ledger.ts. It sits under the gauge because it changes the
+ * number directly above it, and the caption says which reading you're getting
+ * rather than making you remember what the switch means. */
+function CardSpendToggle({ on, onChange }: { on: boolean; onChange: (v: boolean) => void }) {
+  return (
+    <button
+      onClick={() => onChange(!on)}
+      className="w-full flex items-center justify-between gap-3 px-2 pt-2 pb-1 text-left"
+      style={{ borderTop: "1px solid var(--color-hairline)" }}
+      aria-pressed={on}
+    >
+      <span className="min-w-0">
+        <span className="block text-xs font-medium" style={{ color: "var(--color-text)" }}>
+          Count card spending
+        </span>
+        <span className="block text-xs" style={{ color: "var(--color-faint)" }}>
+          {on
+            ? "Purchases count as you make them"
+            : "Only the monthly card payment counts"}
+        </span>
+      </span>
+      <span
+        className="shrink-0 rounded-full transition-colors"
+        style={{
+          width: 40,
+          height: 24,
+          padding: 3,
+          background: on ? "var(--color-primary)" : "var(--color-elevated)",
+          border: on ? "none" : "1px solid var(--color-hairline)",
+        }}
+      >
+        <span
+          className="block rounded-full transition-transform"
+          style={{
+            width: 18,
+            height: 18,
+            background: on ? "#fff" : "var(--color-muted)",
+            transform: on ? "translateX(16px)" : "translateX(0)",
+          }}
+        />
+      </span>
+    </button>
   );
 }
