@@ -3,11 +3,16 @@ import { ledger } from "./ledger";
 import type { Commitment } from "./types";
 import type { Transaction, TransactionSplit } from "@/lib/types";
 
-/* Two readings of a credit card, and the rule that keeps them honest:
-   exactly one side of (purchases, the payment that settles them) is ever
-   counted. Both would charge you twice for one dinner. Neither is the hole
-   this was found through — $316 of spending on a card with no payment line
-   reduced free-to-spend by nothing at all. */
+/* Two readings of a credit card. The spend view counts purchases as you make
+   them, ON TOP of everything the cash view already counts — the card payment
+   included.
+
+   The first version dropped the payment in the spend view, on the theory that
+   the purchases and the payment clearing them are one event seen twice. That
+   holds only when the card is paid in full monthly. WHEN A BALANCE IS CARRIED
+   they are different money: the payment retires old debt, the purchases create
+   new. Dropping the payment made turning the toggle ON raise free-to-spend by
+   $83, which is how the mistake surfaced. */
 
 const c = (o: Partial<Commitment> & { id: string }) =>
   ({
@@ -42,7 +47,7 @@ const purchase = t({ id: "buy", account_id: "visa", amount: -400, splits: [split
 const run = (commitments: Commitment[], txns: Transaction[], countCardPurchases: boolean) =>
   ledger(commitments, txns, "2026-08", ctx, { countCardPurchases });
 
-describe("the card views never overlap", () => {
+describe("the toggle only ever adds the purchases", () => {
   it("cash view counts the payment and not the purchase", () => {
     const led = run([income, cardPayment], [purchase], false);
     expect(led.discretionary).toBe(0);
@@ -50,26 +55,28 @@ describe("the card views never overlap", () => {
     expect(led.freeToSpend).toBe(700);
   });
 
-  it("spend view counts the purchase and not the payment", () => {
+  it("spend view counts the purchase AND keeps the payment", () => {
+    // carrying a balance: $400 of new debt and $300 of paydown are both real
+    // claims on this month's income
     const led = run([income, cardPayment], [purchase], true);
     expect(led.discretionary).toBe(400);
-    expect(led.commitmentsEffective).toBe(0);
-    expect(led.freeToSpend).toBe(600);
+    expect(led.commitmentsEffective).toBe(300);
+    expect(led.freeToSpend).toBe(300);
   });
 
-  it("never counts both — the sum of the two sides is charged once", () => {
+  it("turning it ON can never RAISE free-to-spend", () => {
+    // the bug that started this: dropping the card payment gave back more than
+    // the purchases took, so "count card spending" made the number go up
     const cash = run([income, cardPayment], [purchase], false);
     const spend = run([income, cardPayment], [purchase], true);
-    // 300 + 400 = 700 would be the double-charge; neither view is near it
-    expect(cash.commitmentsEffective + cash.discretionary).toBe(300);
-    expect(spend.commitmentsEffective + spend.discretionary).toBe(400);
+    expect(spend.freeToSpend).toBeLessThanOrEqual(cash.freeToSpend);
+    expect(cash.freeToSpend - spend.freeToSpend).toBe(400); // exactly the purchases
   });
 
-  it("a card payment made as a transfer is skipped in the spend view too", () => {
-    // the commitment isn't the only way a payment reaches the ledger
+  it("a card payment made as a transfer keeps counting in both views", () => {
     const pay = t({ id: "pay", account_id: "visa", amount: 300, type: "transfer" });
     expect(run([income], [purchase, pay], false).discretionary).toBe(300);
-    expect(run([income], [purchase, pay], true).discretionary).toBe(400);
+    expect(run([income], [purchase, pay], true).discretionary).toBe(700);
   });
 });
 
@@ -118,13 +125,10 @@ describe("what the toggle must NOT change", () => {
       .toBe(run([income, bill], [groceries], true).freeToSpend);
   });
 
-  it("the card payment still SHOWS in the plan, marked as carried", () => {
-    // it counts zero, but a line that vanished would read as forgotten
+  it("the card payment commitment is untouched by it", () => {
     const led = run([income, cardPayment], [purchase], true);
     const line = led.items.find((i) => i.id === "p");
-    expect(line).toBeDefined();
-    expect(line?.carried).toBe(true);
-    expect(line?.effective).toBe(0);
-    expect(line?.amount).toBe(-300); // the plan is still on the record
+    expect(line?.effective).toBe(-300);
+    expect(line?.amount).toBe(-300);
   });
 });

@@ -22,20 +22,28 @@ import type { Commitment, CommitmentKind } from "./types";
  *     31st that clears on the 1st lands in the month that expected it. Only
  *     unlinked spending is bucketed by its own date.
  *
- * TWO VIEWS OF A CREDIT CARD, and the whole point is that they never overlap.
+ * TWO VIEWS OF A CREDIT CARD.
  *
  *   CASH  — when did money leave your pocket? A card purchase doesn't reduce
  *           free-to-spend; the monthly card payment does. True to your bank
  *           balance, but a week of swiping shows up as nothing at all, and
  *           spending on a card with no payment line vanishes entirely.
  *
- *   SPEND — what have you committed this month? A card purchase reduces
- *           free-to-spend the moment it posts, and the card payment then counts
- *           ZERO, because charging it and paying it are one event seen twice.
+ *   SPEND — that, PLUS the purchases as you make them.
  *
- * The invariant is that exactly one of the pair is counted, never both and
- * never neither. Counting both charges you twice for one dinner; counting
- * neither is the hole that made $316 of card spending invisible.
+ * The card payment keeps counting in both, and it is worth being clear why,
+ * because the first version of this got it wrong. When a card is paid in full
+ * every month, the purchases and the payment that clears them are one event
+ * seen twice, and counting both would double-charge. WHEN A BALANCE IS
+ * CARRIED THEY ARE DIFFERENT MONEY: the payment retires debt you already owe,
+ * while this month's purchases create new debt. Both are real claims on this
+ * month's income, so both count — that is what "don't overspend, and pay the
+ * cards down" actually requires.
+ *
+ * (Building it the other way made turning the toggle ON raise free-to-spend,
+ * because dropping the payment gave back more than the purchases took. A
+ * setting called "count card spending" that increases what you can spend is
+ * its own proof of a wrong model.)
  *
  * LOAN accounts are excluded from spending in BOTH views. Interest and escrow
  * post as charges against the loan, but they are consequences of a payment
@@ -57,8 +65,6 @@ export interface LedgerItem {
   excluded: boolean;
   /** settled by a payment that primarily fulfills another occurrence */
   coveredBy?: string | null;
-  /** a card payment counting zero because its purchases were counted instead */
-  carried?: boolean;
   status: "expected" | "paid";
   /** signed actual from linked transactions (null until something links) */
   actual: number | null;
@@ -87,8 +93,8 @@ export interface LedgerContext {
 }
 
 export interface LedgerOptions {
-  /** SPEND view: count card purchases when they post, and stop counting the
-   *  card payment that would otherwise carry them. Default false (cash view). */
+  /** SPEND view: count card purchases as they post, on top of everything the
+   *  cash view already counts. Default false. */
   countCardPurchases?: boolean;
 }
 
@@ -133,12 +139,9 @@ export function ledger(
     // A week settled by someone else's lump payment counts ZERO here: the
     // primary line carries the whole amount, so the cash lands once.
     const covered = !!c.covered_by;
-    // In the spend view the purchases already counted, so counting the payment
-    // too would charge the same dinner twice.
-    const carried = spendView && c.kind === "cc_payment";
     const actual = covered ? 0 : linkedActual(c.kind, linked);
-    const effective = c.skipped || covered || carried ? 0 : (actual ?? c.amount);
-    if (!c.skipped && !covered && !carried) {
+    const effective = c.skipped || covered ? 0 : (actual ?? c.amount);
+    if (!c.skipped && !covered) {
       if (c.kind === "income") {
         expectedIncome += c.amount;
         incomeEffective += effective;
@@ -157,7 +160,6 @@ export function ledger(
       variable: c.variable,
       excluded: c.skipped,
       coveredBy: c.covered_by ?? null,
-      carried,
       status: covered || actual !== null ? "paid" : "expected",
       actual,
       effective,
@@ -178,15 +180,13 @@ export function ledger(
     }
     if (t.type === "transfer") {
       // Money landing in a loan/credit/savings account is cash committed.
-      // Count the destination leg only, so a pair counts once. A card payment
-      // is skipped in the spend view for the same reason its commitment is:
-      // the purchases it settles have already been counted.
-      const toCard = ctx.creditAccountIds.has(t.account_id);
+      // Count the destination leg only, so a pair counts once. This includes a
+      // card payment in both views: paying down a carried balance is real cash
+      // leaving, whatever was bought this month.
       if (
         t.amount > 0 &&
-        !(spendView && toCard) &&
         (ctx.loanAccountIds.has(t.account_id) ||
-          toCard ||
+          ctx.creditAccountIds.has(t.account_id) ||
           ctx.savingsAccountIds.has(t.account_id))
       ) {
         discretionary += t.amount;
@@ -201,8 +201,8 @@ export function ledger(
     // rollup, which is what puts mortgage escrow under Housing without
     // inflating spending.
     if (ctx.loanAccountIds.has(t.account_id)) continue;
-    // A CARD purchase counts in the spend view and not in the cash one — the
-    // card payment takes the opposite side of that trade above.
+    // A CARD purchase is the one thing the toggle moves: counted as you make
+    // it in the spend view, invisible until the payment in the cash one.
     if (!spendView && ctx.creditAccountIds.has(t.account_id)) continue;
     for (const split of t.splits ?? []) discretionary += -split.amount;
   }

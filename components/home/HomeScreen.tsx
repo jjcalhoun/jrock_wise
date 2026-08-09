@@ -569,12 +569,13 @@ function FlowBar({
   );
 }
 
-/* Which side of the card trade free-to-spend counts.
+/* Whether card purchases count as you make them, on top of the card payment
+ * that always counts. See lib/commitments/ledger.ts for why both belong while
+ * a balance is carried.
  *
- * Both readings are honest, and they must never overlap — see
- * lib/commitments/ledger.ts. It sits under the gauge because it changes the
- * number directly above it, and the caption says which reading you're getting
- * rather than making you remember what the switch means. */
+ * It sits under the gauge because it changes the number directly above it, and
+ * the caption says which reading you're getting rather than making you
+ * remember what the switch means. */
 function CardSpendToggle({ on, onChange }: { on: boolean; onChange: (v: boolean) => void }) {
   return (
     <button
@@ -590,7 +591,7 @@ function CardSpendToggle({ on, onChange }: { on: boolean; onChange: (v: boolean)
         <span className="block text-xs" style={{ color: "var(--color-faint)" }}>
           {on
             ? "Purchases count as you make them"
-            : "Only the monthly card payment counts"}
+            : "Only the card payment counts, not purchases"}
         </span>
       </span>
       <span
