@@ -11,7 +11,11 @@ import {
   useSettings,
   useUpdateSettings,
 } from "@/hooks/useSupabaseData";
-import { useCommitments } from "@/hooks/useCommitments";
+import { useCommitments, useConfirmCommitment } from "@/hooks/useCommitments";
+import { useSimplefinMappings } from "@/hooks/useSimplefin";
+import { isAwaitingConfirmation, daysOverdue } from "@/lib/commitments/due";
+import { settlementFor } from "@/lib/commitments/restore";
+import { todayISO } from "@/lib/dates";
 import { useTxnWindow } from "@/components/providers";
 import { rollup, loanPaydown, monthKey } from "@/lib/aggregations";
 import { debtPayment } from "@/lib/debt";
@@ -118,6 +122,31 @@ export function HomeScreen() {
 
   // Only worth offering when there is a card in play at all.
   const hasCards = creditIds.size > 0;
+
+  /* ---- payments waiting on you ----
+     On a manual account nothing will ever match a payment automatically: there
+     is no feed to bring it. The plan sheet has said so since it learned to ask,
+     but the plan sheet is two taps into Profile, so in practice a paid bill sat
+     unconfirmed and dragged free-to-spend down for weeks. It belongs here. */
+  const { data: mappings = [] } = useSimplefinMappings();
+  const confirmPaid = useConfirmCommitment(month);
+  const today = todayISO();
+  const awaiting = useMemo(() => {
+    if (!isCurrent) return [];
+    const syncedIds = new Set(mappings.map((m) => m.account_id));
+    const accountById = new Map(accounts.map((a) => [a.id, a]));
+    return commitments
+      .filter((c) =>
+        isAwaitingConfirmation(
+          c,
+          c.account_id ? accountById.get(c.account_id) : undefined,
+          !!c.account_id && syncedIds.has(c.account_id),
+          settlementFor(c, transactions),
+          today,
+        ),
+      )
+      .sort((a, b) => daysOverdue(b.due_hint, today) - daysOverdue(a.due_hint, today));
+  }, [commitments, transactions, accounts, mappings, today, isCurrent]);
 
   // Gauge scale: expected income from the ledger; sensible fallbacks while a
   // plan doesn't exist yet (fresh month, or months before plans existed).
@@ -295,6 +324,58 @@ export function HomeScreen() {
           />
         )}
       </Card>
+
+      {/* Payments waiting on you — manual accounts only; see the note above */}
+      {awaiting.length > 0 && (
+        <Card className="p-4 space-y-2.5">
+          <div>
+            <p className="text-sm font-semibold" style={{ color: "var(--color-text)" }}>
+              Did these go through?
+            </p>
+            <p className="text-xs mt-0.5" style={{ color: "var(--color-muted)" }}>
+              No bank feed on these accounts, so nothing can match them for you
+            </p>
+          </div>
+          {awaiting.slice(0, 4).map((c) => (
+            <div key={c.id} className="flex items-center gap-3">
+              <div className="flex-1 min-w-0">
+                <p className="text-sm truncate" style={{ color: "var(--color-text)" }}>
+                  {c.name}
+                </p>
+                <p className="text-xs" style={{ color: "var(--color-faint)" }}>
+                  {overdueLabel(daysOverdue(c.due_hint, today))}
+                </p>
+              </div>
+              <span className="font-figure text-sm shrink-0" style={{ color: "var(--color-text)" }}>
+                {fmt(c.amount)}
+              </span>
+              <button
+                onClick={() =>
+                  // A variable line can't be confirmed at its estimate — the
+                  // reason to ask is that the real figure differs — so it goes
+                  // to the plan, where the amount can be typed.
+                  c.variable
+                    ? setSheet("plan")
+                    : confirmPaid.mutate({ commitment: c, amount: Math.abs(c.amount), date: today })
+                }
+                className="text-xs font-semibold px-2.5 py-1.5 rounded-md shrink-0 text-white"
+                style={{ background: "var(--color-primary)" }}
+              >
+                {c.variable ? "Confirm…" : "Mark paid"}
+              </button>
+            </div>
+          ))}
+          {awaiting.length > 4 && (
+            <button
+              onClick={() => setSheet("plan")}
+              className="text-xs font-semibold"
+              style={{ color: "var(--color-primary)" }}
+            >
+              {awaiting.length - 4} more in the plan
+            </button>
+          )}
+        </Card>
+      )}
 
       {/* Review queue */}
       {unreviewed > 0 && (
@@ -616,4 +697,14 @@ function CardSpendToggle({ on, onChange }: { on: boolean; onChange: (v: boolean)
       </span>
     </button>
   );
+}
+
+/* How late a waiting payment is. "Due today" reads better than "0 days late",
+   and a payment one day out doesn't deserve alarm. */
+function overdueLabel(days: number): string {
+  if (days <= 0) return "due today";
+  if (days === 1) return "due yesterday";
+  if (days < 7) return `${days} days ago`;
+  if (days < 14) return "over a week ago";
+  return `${Math.floor(days / 7)} weeks ago`;
 }
