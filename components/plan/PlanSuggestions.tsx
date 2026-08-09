@@ -3,7 +3,9 @@
 import { useMemo } from "react";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
-import { useTransactions, useAccounts } from "@/hooks/useSupabaseData";
+import { useTransactions, useAccounts, useAccountBalances } from "@/hooks/useSupabaseData";
+import { useCommitments } from "@/hooks/useCommitments";
+import { findCardGaps } from "@/lib/commitments/cardGap";
 import {
   useSeries,
   useUpsertSeries,
@@ -55,6 +57,8 @@ export function PlanSuggestions({
 }) {
   const { data: transactions = [] } = useTransactions();
   const { data: accounts = [] } = useAccounts();
+  const { data: balances = {} } = useAccountBalances();
+  const { data: periodCommitments = [] } = useCommitments(period);
   const { data: series = [] } = useSeries();
   const { data: dismissed } = useDismissedSuggestions();
   const upsert = useUpsertSeries();
@@ -110,10 +114,66 @@ export function PlanSuggestions({
     });
   }
 
-  if (suggestions.length === 0 && duplicates.length === 0) return null;
+  // A card being spent on with nothing planned to pay it. Free-to-spend counts
+  // the purchases now, but nothing reserves cash to clear them.
+  const cardGaps = useMemo(
+    () => findCardGaps(accounts, periodCommitments, transactions, period, balances),
+    [accounts, periodCommitments, transactions, period, balances],
+  );
+
+  function addCardPayment(accountId: string, name: string) {
+    // Variable by default: what you pay a card varies with the statement, and
+    // the whole reason to ask is that the app can't know the figure.
+    const from = accounts.find((a) => a.type === "checking") ?? accounts[0];
+    if (!from) return;
+    upsert.mutate({
+      period,
+      input: {
+        name: `${name} payment`,
+        kind: "cc_payment",
+        amount: 0,
+        account_id: from.id,
+        transfer_account_id: accountId,
+        frequency: "monthly",
+        day_of_month: 15,
+        interval: 1,
+        variable: true,
+      },
+    });
+  }
+
+  if (suggestions.length === 0 && duplicates.length === 0 && cardGaps.length === 0) return null;
 
   return (
     <div className="space-y-4">
+      {cardGaps.length > 0 && (
+        <div className="space-y-2">
+          <p className="text-xs font-semibold" style={{ color: "var(--color-text)" }}>
+            Cards with nothing planned
+          </p>
+          {cardGaps.map((g) => (
+            <Card key={g.accountId} className="p-3 space-y-2">
+              <p className="text-sm" style={{ color: "var(--color-text)" }}>
+                {g.name}
+              </p>
+              <p className="text-xs" style={{ color: "var(--color-faint)" }}>
+                {g.spent > 0 ? `${fmt(g.spent)} spent this month` : "nothing spent this month"}
+                {g.owed ? ` · ${fmt(g.owed)} owed` : ""}
+                {g.paid > 0 ? ` · ${fmt(g.paid)} paid` : ""}. No payment planned, so
+                nothing is set aside to pay it down.
+              </p>
+              <Button
+                size="sm"
+                onClick={() => addCardPayment(g.accountId, g.name)}
+                disabled={upsert.isPending}
+              >
+                Add a payment line
+              </Button>
+            </Card>
+          ))}
+        </div>
+      )}
+
       {duplicates.length > 0 && (
         <div className="space-y-2">
           <p className="text-xs font-semibold" style={{ color: "var(--color-text)" }}>
