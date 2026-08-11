@@ -37,6 +37,9 @@ const ACCOUNTS = [
   { id: "acc-chk", name: "Everyday Checking", type: "checking", starting_balance: 2350, last4: "4821" },
   { id: "acc-sav", name: "High-Yield Savings", type: "savings", starting_balance: 6200, last4: "9034" },
   { id: "acc-cc", name: "Rewards Card", type: "credit", starting_balance: -640, last4: "7716", apr: 24.99, min_payment: 35, statement_day: 20 },
+  // Deliberately has NO payment rule below: this is the card-gap prompt's case,
+  // a card being spent on with nothing planned to pay it down.
+  { id: "acc-cc2", name: "Travel Card", type: "credit", starting_balance: -415, last4: "3390", apr: 21.99, min_payment: 25, statement_day: 12 },
   { id: "acc-loan", name: "Car Loan", type: "loan", starting_balance: -11890, last4: "0042", apr: 6.4, min_payment: 320, statement_day: 5 },
 ];
 
@@ -77,6 +80,15 @@ const RULES: RuleSpec[] = [
   { id: "rule-ccpay", name: "Rewards Card payment", account_id: "acc-chk", type: "transfer", amount: -600, transfer_account_id: "acc-cc", frequency: "monthly", day_of_month: 20 },
   { id: "rule-save", name: "Savings auto-transfer", account_id: "acc-chk", type: "transfer", amount: -250, transfer_account_id: "acc-sav", frequency: "monthly", day_of_month: 2 },
 ];
+
+/* Series whose CURRENT-MONTH payment is deliberately left unposted.
+ *
+ * Every account here is manual — the demo has no bank connected — so a due
+ * occurrence with nothing against it is exactly the case the home screen now
+ * asks about: "did this go through?". Without these the demo would show a
+ * month where everything settles itself, which is the assumption the app
+ * spent this whole redesign removing. */
+const AWAITING = new Set(["rule-gym", "rule-carpay"]);
 
 const MERCHANTS = {
   groceries: ["Kroger", "Aldi", "Fresh Market", "Costco"],
@@ -202,6 +214,8 @@ export function buildSeed(todayIso: string): DemoTables {
   const rnd0 = prng(dayNum(todayIso.slice(0, 8) + "01"));
   for (const rule of RULES) {
     for (const date of ruleDates(rule, historyStart, today)) {
+      // left for you to confirm — see AWAITING
+      if (AWAITING.has(rule.id) && date >= iso(monthStart)) continue;
       const external = `recurring:${rule.id}:${date}`;
       const amount = rule.variable
         ? round2(rule.amount * (0.85 + prng(dayNum(date))() * 0.4))
@@ -247,6 +261,18 @@ export function buildSeed(todayIso: string): DemoTables {
     if ((dow === 5 || dow === 0) && rnd() < 0.5) {
       const amt = -round2(12 + rnd() * 48);
       const id = addTxn({ account_id: "acc-cc", date, amount: amt, merchant: pick(rnd, MERCHANTS.fun), reviewed: rev });
+      if (rev) addSplit(id, "cat-fun", "wants", amt);
+    }
+    // the Travel Card: real, ongoing spending with no payment line anywhere —
+    // the shape that makes free-to-spend read high if purchases aren't counted
+    if (dow === 3 && rnd() < 0.55) {
+      const amt = -round2(26 + rnd() * 74);
+      const id = addTxn({ account_id: "acc-cc2", date, amount: amt, merchant: pick(rnd, MERCHANTS.dining), reviewed: rev });
+      if (rev) addSplit(id, "cat-dining", "wants", amt);
+    }
+    if (dow === 1 && rnd() < 0.22) {
+      const amt = -round2(40 + rnd() * 70);
+      const id = addTxn({ account_id: "acc-cc2", date, amount: amt, merchant: pick(rnd, MERCHANTS.fun), reviewed: rev });
       if (rev) addSplit(id, "cat-fun", "wants", amt);
     }
   }
