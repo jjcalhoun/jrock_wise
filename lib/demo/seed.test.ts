@@ -1,8 +1,11 @@
 import { describe, it, expect } from "vitest";
 import { buildSeed } from "./seed";
 import { ledger } from "@/lib/commitments/ledger";
+import { findCardGaps } from "@/lib/commitments/cardGap";
+import { isAwaitingConfirmation } from "@/lib/commitments/due";
+import { settlementFor } from "@/lib/commitments/restore";
 import type { Commitment } from "@/lib/commitments/types";
-import type { Transaction } from "@/lib/types";
+import type { Account, Transaction } from "@/lib/types";
 
 describe("demo seed", () => {
   const t = buildSeed("2026-07-15");
@@ -79,5 +82,88 @@ describe("demo seed", () => {
     // the rule-generated rows link, so some commitments read as paid
     expect(led.items.some((i) => i.status === "paid")).toBe(true);
     expect(Number.isFinite(led.freeToSpend)).toBe(true);
+  });
+});
+
+/* The demo is the only place most people ever see this app, so it has to show
+   what the app actually does — including the two things it now says out loud
+   when something is missing. A seed where every bill settles itself and every
+   card is planned for would demonstrate the assumptions this redesign removed. */
+describe("the demo exercises what the app now surfaces", () => {
+  // late in the month, so the early-month due dates have passed
+  const t = buildSeed("2026-08-20");
+  const accounts = t.accounts as unknown as Account[];
+  const commitments = t.commitments as unknown as Commitment[];
+
+  // The seed stores splits in their own table; the app joins them when it
+  // reads. Anything reasoning about spending needs them attached, so do here
+  // what useTransactions does there.
+  const splitsByTxn = new Map<string, Record<string, unknown>[]>();
+  for (const sp of t.transaction_splits) {
+    const key = sp.transaction_id as string;
+    const arr = splitsByTxn.get(key);
+    if (arr) arr.push(sp);
+    else splitsByTxn.set(key, [sp]);
+  }
+  const transactions = t.transactions.map((x) => ({
+    ...x,
+    splits: splitsByTxn.get(x.id as string) ?? [],
+  })) as unknown as Transaction[];
+
+  it("has a card being spent on with no payment line", () => {
+    const gaps = findCardGaps(accounts, commitments, transactions, "2026-08");
+    expect(gaps.map((g) => g.name)).toContain("Travel Card");
+    expect(gaps.find((g) => g.name === "Travel Card")!.spent).toBeGreaterThan(0);
+  });
+
+  it("does NOT flag the card that has one", () => {
+    const gaps = findCardGaps(accounts, commitments, transactions, "2026-08");
+    expect(gaps.map((g) => g.name)).not.toContain("Rewards Card");
+  });
+
+  it("leaves real payments waiting to be confirmed", () => {
+    // no bank is connected in the demo, so nothing can settle these but you
+    const byId = new Map(accounts.map((a) => [a.id, a]));
+    const awaiting = commitments.filter((c) =>
+      isAwaitingConfirmation(
+        c,
+        c.account_id ? byId.get(c.account_id) : undefined,
+        false,
+        settlementFor(c, transactions),
+        "2026-08-20",
+      ),
+    );
+    expect(awaiting.length).toBeGreaterThan(0);
+    expect(awaiting.map((c) => c.name)).toContain("Car loan payment");
+  });
+
+  it("still settles everything else, so the queue is short and believable", () => {
+    const byId = new Map(accounts.map((a) => [a.id, a]));
+    const awaiting = commitments.filter((c) =>
+      isAwaitingConfirmation(
+        c,
+        c.account_id ? byId.get(c.account_id) : undefined,
+        false,
+        settlementFor(c, transactions),
+        "2026-08-20",
+      ),
+    );
+    expect(awaiting.length).toBeLessThanOrEqual(3);
+  });
+
+  it("counts the second card's spending in free-to-spend", () => {
+    const ctx = {
+      creditAccountIds: new Set(accounts.filter((a) => a.type === "credit").map((a) => a.id)),
+      loanAccountIds: new Set(accounts.filter((a) => a.type === "loan").map((a) => a.id)),
+      savingsAccountIds: new Set(accounts.filter((a) => a.type === "savings").map((a) => a.id)),
+    };
+    const off = ledger(commitments, transactions, "2026-08", ctx, { countCardPurchases: false });
+    const on = ledger(commitments, transactions, "2026-08", ctx, { countCardPurchases: true });
+    // the toggle has something to do, and it can only ever reduce
+    expect(on.freeToSpend).toBeLessThan(off.freeToSpend);
+  });
+
+  it("ships with card spending counted, matching the app default", () => {
+    expect(t.settings[0].count_card_purchases).toBe(true);
   });
 });
