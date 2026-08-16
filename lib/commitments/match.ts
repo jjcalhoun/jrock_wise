@@ -97,10 +97,24 @@ export function rankCommitments(
   opts: RankOptions = {},
 ): Candidate[] {
   const tolPct = opts.amountTolPct ?? 25;
+
+  // Who already settled each occurrence. BOTH ways of recording it count:
+  // the primary is linked from the transaction, while a week paid as part of
+  // a lump points back at the transaction instead. Reading only the first is
+  // what made a covered week keep showing up as an ordinary free chip in every
+  // other picker — settled in the database, and advertised as available.
+  const byId = new Map((opts.linked ?? []).map((t) => [t.id, t]));
   const claims = new Map<string, Transaction>();
   for (const t of opts.linked ?? []) {
     if (t.commitment_id && t.id !== txn.id) claims.set(t.commitment_id, t);
   }
+  const claimant = (c: Commitment): Transaction | undefined => {
+    const direct = claims.get(c.id);
+    if (direct) return direct;
+    // covered by THIS payment is a current selection, not someone else's claim
+    if (!c.covered_by || c.covered_by === txn.id) return undefined;
+    return byId.get(c.covered_by);
+  };
 
   return commitments
     .map((c) => {
@@ -111,7 +125,7 @@ export function rankCommitments(
           W_NAME * nameSimilarity(txn.merchant || txn.description || "", c.name) +
           W_DATE * dateScore(txn, c)) /
         W_TOTAL;
-      return { commitment: c, score, claimedBy: claims.get(c.id) };
+      return { commitment: c, score, claimedBy: claimant(c) };
     })
     .sort((a, b) => {
       // an unclaimed candidate outranks a claimed one of equal quality
