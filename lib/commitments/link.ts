@@ -14,6 +14,12 @@ import type { Commitment } from "./types";
  * The exception is a two-sided transfer: both legs legitimately share one
  * commitment, and the ledger already counts the pair once (it prefers the
  * outflow leg). Legs of the same transfer never evict each other.
+ *
+ * Linking also UN-SKIPS whatever it settles. Skipping a week says "this isn't
+ * happening this month"; a payment against it says otherwise, and the payment
+ * is the evidence. Leaving both set produced a line that was covered and
+ * skipped at once — which renders dimmed and unticked, so a week you had just
+ * paid still looked declined.
  */
 
 export interface LinkResult {
@@ -86,6 +92,15 @@ export async function linkTransactionToCommitment(
       .update({ covered_by: txnId })
       .in("id", alsoCovered);
     if (covErr) throw covErr;
+  }
+
+  // A settled week is not a skipped one, whichever way it was settled.
+  if (ids.length > 0) {
+    const { error: skipErr } = await supabase
+      .from("commitments")
+      .update({ skipped: false })
+      .in("id", ids);
+    if (skipErr) throw skipErr;
   }
 
   const becameTransfer = commitmentId ? await applyCommitmentShape(supabase, txnId, commitmentId) : false;
