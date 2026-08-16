@@ -109,12 +109,25 @@ describe("rankCommitments", () => {
     expect(ranked[1].claimedBy?.id).toBe("other");
   });
 
-  it("skipped commitments are out of the running", () => {
+  it("skipped commitments are still OFFERED — you may have paid one anyway", () => {
+    // They used to be dropped here, which made a week you had unticked
+    // impossible to select and therefore impossible to cover with a lump
+    // payment. Nothing on screen explained why that week was unreachable.
     const ranked = rankCommitments(
       t({ amount: -45, date: "2026-07-03", merchant: "Gym" }),
       [c({ id: "a", name: "Gym", amount: -45, skipped: true })],
     );
-    expect(ranked).toEqual([]);
+    expect(ranked).toHaveLength(1);
+    expect(ranked[0].commitment.id).toBe("a");
+  });
+
+  it("but a skipped commitment is never PRE-selected", () => {
+    // offering it is help; choosing it for you would undo a decision
+    const s = suggestCommitment(
+      t({ amount: -45, date: "2026-07-03", merchant: "Gym" }),
+      [c({ id: "a", name: "Gym", amount: -45, skipped: true })],
+    );
+    expect(s).toBeNull();
   });
 
   it("income and outgoing don't cross", () => {

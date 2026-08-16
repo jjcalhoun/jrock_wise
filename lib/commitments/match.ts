@@ -83,7 +83,14 @@ export interface RankOptions {
   linked?: Transaction[];
 }
 
-/** Score every candidate. Sorted best-first; nothing is filtered out. */
+/** Score every candidate. Sorted best-first.
+ *
+ *  SKIPPED lines are included, deliberately. They used to be filtered out here,
+ *  which made a week you had unticked impossible to select — and therefore
+ *  impossible to cover with a lump payment, with no explanation on screen. A
+ *  week you skipped and then actually paid has to be reachable; linking one
+ *  un-skips it (see link.ts). Pre-selection still ignores them, so a skipped
+ *  line is offered but never chosen for you. */
 export function rankCommitments(
   txn: Transaction,
   commitments: Commitment[],
@@ -96,7 +103,6 @@ export function rankCommitments(
   }
 
   return commitments
-    .filter((c) => !c.skipped)
     .map((c) => {
       const score =
         (W_ACCOUNT * accountScore(txn, c) +
@@ -139,7 +145,9 @@ export function suggestCommitment(
   commitments: Commitment[],
   opts: RankOptions = {},
 ): Commitment | null {
-  const ranked = rankCommitments(txn, commitments, opts).filter((c) => !c.claimedBy);
+  const ranked = rankCommitments(txn, commitments, opts).filter(
+    (c) => !c.claimedBy && !c.commitment.skipped,
+  );
   if (ranked.length === 0) return null;
   const [best, next] = ranked;
   if (best.score < 0.62) return null;
