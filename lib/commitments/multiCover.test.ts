@@ -193,3 +193,72 @@ describe("a week that was skipped can still be covered", () => {
     expect(led.commitmentsEffective).toBe(412 + 206);
   });
 });
+
+/* The part that made the fix look like it hadn't worked.
+ *
+ * With 7/24 covered by the 7/17 payment, the database was exactly right —
+ * covered_by set, skipped false — and the week STILL appeared as an ordinary
+ * free chip in every other transaction's picker, indistinguishable from one
+ * nothing had paid. Claim detection read transactions.commitment_id only, so
+ * the entire covered_by half of settlement was invisible to it. */
+describe("a covered week reads as claimed everywhere", () => {
+  const OTHER = "bbbbbbbb-2222-2222-2222-222222222222";
+
+  beforeEach(async () => {
+    await reset();
+    await db.from("transactions").insert({
+      id: OTHER,
+      user_id: U,
+      account_id: "chk",
+      date: "2026-07-30",
+      amount: -206,
+      description: "Zelle",
+      merchant: "Zelle",
+      type: "expense",
+      source: "manual",
+      reviewed: true,
+    });
+    await linkTransactionToCommitment(db, ZELLE, ["w17", "w24"]);
+  });
+
+  it("shows as claimed in ANOTHER payment's picker", async () => {
+    const { commitments, transactions } = await load();
+    const other = transactions.find((t) => t.id === OTHER)!;
+    const ranked = rankCommitments(other, commitments, { linked: transactions });
+    const w24 = ranked.find((r) => r.commitment.id === "w24")!;
+    expect(w24.claimedBy?.id).toBe(ZELLE);
+  });
+
+  it("but NOT in the picker of the payment that covers it", async () => {
+    // there it is the current selection, and dimming it would be a lie
+    const { commitments, transactions } = await load();
+    const zelle = transactions.find((t) => t.id === ZELLE)!;
+    const ranked = rankCommitments(zelle, commitments, { linked: transactions });
+    expect(ranked.find((r) => r.commitment.id === "w24")!.claimedBy).toBeUndefined();
+  });
+
+  it("is never suggested to another payment", async () => {
+    // suggestCommitment drops claimed candidates, so this follows — but it is
+    // the difference between "offered, dimmed, tap to steal" and "pre-filled"
+    const { commitments, transactions } = await load();
+    const other = transactions.find((t) => t.id === OTHER)!;
+    const s = suggestCommitment(other, commitments, { linked: transactions });
+    expect(s?.id).not.toBe("w24");
+  });
+
+  it("stays selectable, so a wrong cover can be taken back", async () => {
+    const { commitments, transactions } = await load();
+    const other = transactions.find((t) => t.id === OTHER)!;
+    const shown = orderForDisplay(
+      rankCommitments(other, commitments, { linked: transactions }),
+    ).map((c) => c.commitment.id);
+    expect(shown).toContain("w24");
+  });
+
+  it("the directly-linked week reads as claimed too, as it always did", async () => {
+    const { commitments, transactions } = await load();
+    const other = transactions.find((t) => t.id === OTHER)!;
+    const ranked = rankCommitments(other, commitments, { linked: transactions });
+    expect(ranked.find((r) => r.commitment.id === "w17")!.claimedBy?.id).toBe(ZELLE);
+  });
+});
