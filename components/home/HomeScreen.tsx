@@ -16,6 +16,9 @@ import { useSimplefinMappings } from "@/hooks/useSimplefin";
 import { isAwaitingConfirmation, daysOverdue } from "@/lib/commitments/due";
 import { settlementFor } from "@/lib/commitments/restore";
 import { findUnmatchedIncome, overstatedBy } from "@/lib/commitments/unmatched";
+import { findMisdatedLinks } from "@/lib/commitments/misdated";
+import { useCommitmentWindow } from "@/hooks/useCommitments";
+import { periodWindow } from "@/lib/commitments/period";
 import { todayISO } from "@/lib/dates";
 import { useTxnWindow } from "@/components/providers";
 import { rollup, loanPaydown, monthKey } from "@/lib/aggregations";
@@ -135,6 +138,16 @@ export function HomeScreen() {
   const unmatchedIncome = useMemo(
     () => (isCurrent ? findUnmatchedIncome(commitments, transactions, month) : []),
     [commitments, transactions, month, isCurrent],
+  );
+
+  /* ---- a payment settling the wrong occurrence of its own series ----
+     A linked payment counts toward its COMMITMENT's month, so one mis-tap
+     between two chips reading alike moves a whole paycheck between months.
+     Needs neighbouring periods to see the sibling it should have matched. */
+  const { data: windowCommitments = [] } = useCommitmentWindow(periodWindow(month));
+  const misdated = useMemo(
+    () => (isCurrent ? findMisdatedLinks(windowCommitments, transactions) : []),
+    [windowCommitments, transactions, isCurrent],
   );
 
   /* ---- payments waiting on you ----
@@ -338,6 +351,48 @@ export function HomeScreen() {
           />
         )}
       </Card>
+
+      {/* A payment on the wrong month's line — see the note above */}
+      {misdated.length > 0 && (
+        <Card className="p-4 space-y-2.5" style={{ borderColor: "var(--color-danger)" }}>
+          <div>
+            <p className="text-sm font-semibold" style={{ color: "var(--color-text)" }}>
+              {misdated.length === 1 ? "A payment is" : `${misdated.length} payments are`} on the
+              wrong month&apos;s line
+            </p>
+            <p className="text-xs mt-0.5" style={{ color: "var(--color-muted)" }}>
+              Money counts toward the month of the line it&apos;s matched to, so this moves it
+              out of the month it actually belongs to
+            </p>
+          </div>
+          {misdated.map((m) => (
+            <button
+              key={m.txn.id}
+              onClick={() => setEditTxn(m.txn)}
+              className="w-full flex items-center gap-3 text-left"
+            >
+              <div className="flex-1 min-w-0">
+                <p className="text-sm truncate" style={{ color: "var(--color-text)" }}>
+                  {m.txn.merchant || m.txn.description}
+                </p>
+                <p className="text-xs" style={{ color: "var(--color-faint)" }}>
+                  {shortDate(m.txn.date)} · matched to {monthLabel(m.linkedTo.period)}, belongs to{" "}
+                  {monthLabel(m.better.period)}
+                </p>
+              </div>
+              <span className="font-figure text-sm shrink-0" style={{ color: "var(--color-text)" }}>
+                {fmt(m.txn.amount)}
+              </span>
+              <span
+                className="text-xs font-semibold px-2.5 py-1.5 rounded-md shrink-0 text-white"
+                style={{ background: "var(--color-primary)" }}
+              >
+                Fix
+              </span>
+            </button>
+          ))}
+        </Card>
+      )}
 
       {/* Income counted twice — see the note above.
 
