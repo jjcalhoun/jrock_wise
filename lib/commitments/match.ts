@@ -165,6 +165,27 @@ export function suggestCommitment(
   if (ranked.length === 0) return null;
   const [best, next] = ranked;
   if (best.score < 0.62) return null;
-  if (next && best.score - next.score < 0.05) return null;
+  if (next && best.score - next.score < 0.05 && !sameSeriesTwin(best, next)) return null;
   return best.commitment;
+}
+
+/** Two occurrences of ONE series, at the same amount — a fortnightly payday
+ *  and its twin a fortnight later.
+ *
+ *  The "clearly better than the runner-up" rule exists so an ambiguous pair is
+ *  left alone rather than nudged. But these are not ambiguous in the way that
+ *  guards against: it is the same bill from the same source for the same money,
+ *  and the ONLY thing that can separate them is the date. Refusing to choose
+ *  meant a semimonthly paycheck was never pre-selected, every month, so it
+ *  passed through review unmatched and counted twice — once as the plan line
+ *  and once again as income beyond the plan.
+ *
+ *  Scoring already prefers the nearer date, so letting it decide here picks the
+ *  right occurrence. It is still only a PRE-selection; nothing is linked
+ *  without confirming. */
+function sameSeriesTwin(a: Candidate, b: Candidate): boolean {
+  return (
+    a.commitment.series_id === b.commitment.series_id &&
+    Math.abs(a.commitment.amount - b.commitment.amount) < 0.005
+  );
 }

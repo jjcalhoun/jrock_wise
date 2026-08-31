@@ -15,6 +15,7 @@ import { useCommitments, useConfirmCommitment } from "@/hooks/useCommitments";
 import { useSimplefinMappings } from "@/hooks/useSimplefin";
 import { isAwaitingConfirmation, daysOverdue } from "@/lib/commitments/due";
 import { settlementFor } from "@/lib/commitments/restore";
+import { findUnmatchedIncome, overstatedBy } from "@/lib/commitments/unmatched";
 import { todayISO } from "@/lib/dates";
 import { useTxnWindow } from "@/components/providers";
 import { rollup, loanPaydown, monthKey } from "@/lib/aggregations";
@@ -122,6 +123,15 @@ export function HomeScreen() {
 
   // Only worth offering when there is a card in play at all.
   const hasCards = creditIds.size > 0;
+
+  /* ---- income that arrived but was never matched ----
+     The costliest silent failure available here: the plan line counts from the
+     1st and the unlinked deposit counts again as income beyond the plan, so
+     the month reads high by a whole paycheck with nothing saying why. */
+  const unmatchedIncome = useMemo(
+    () => (isCurrent ? findUnmatchedIncome(commitments, transactions, month) : []),
+    [commitments, transactions, month, isCurrent],
+  );
 
   /* ---- payments waiting on you ----
      On a manual account nothing will ever match a payment automatically: there
@@ -324,6 +334,30 @@ export function HomeScreen() {
           />
         )}
       </Card>
+
+      {/* Income counted twice — see the note above */}
+      {unmatchedIncome.length > 0 && (
+        <button
+          onClick={() => setShowReview(true)}
+          className="w-full rounded-[16px] border p-4 text-left"
+          style={{ background: "var(--color-surface)", borderColor: "var(--color-danger)" }}
+        >
+          <p className="text-sm font-semibold" style={{ color: "var(--color-text)" }}>
+            {unmatchedIncome.length === 1 ? "A deposit isn't" : `${unmatchedIncome.length} deposits aren't`}{" "}
+            matched to the plan
+          </p>
+          <p className="text-xs mt-0.5" style={{ color: "var(--color-muted)" }}>
+            Income above is {fmt0(overstatedBy(unmatchedIncome))} too high until they are —
+            the plan already expects this money
+          </p>
+          <p className="text-xs mt-1.5" style={{ color: "var(--color-faint)" }}>
+            {unmatchedIncome
+              .slice(0, 3)
+              .map((u) => `${u.txn.merchant || u.txn.description} · ${fmt(u.txn.amount)}`)
+              .join(" · ")}
+          </p>
+        </button>
+      )}
 
       {/* Payments waiting on you — manual accounts only; see the note above */}
       {awaiting.length > 0 && (
