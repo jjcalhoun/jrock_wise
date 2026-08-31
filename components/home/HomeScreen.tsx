@@ -21,7 +21,7 @@ import { useTxnWindow } from "@/components/providers";
 import { rollup, loanPaydown, monthKey } from "@/lib/aggregations";
 import { debtPayment } from "@/lib/debt";
 import { ledger as buildLedger } from "@/lib/commitments/ledger";
-import { fmt, fmt0, currentMonthKey, monthLabel, addMonth } from "@/lib/format";
+import { fmt, fmt0, shortDate, currentMonthKey, monthLabel, addMonth } from "@/lib/format";
 import { BUCKETS } from "@/lib/buckets";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
@@ -32,10 +32,11 @@ import { SegmentDetail, type DetailSegment } from "@/components/insights/Segment
 import { GaugeLoader } from "@/components/ui/GaugeLoader";
 import { AccountEditor } from "@/components/settings/AccountEditor";
 import { NewTransaction } from "@/components/transactions/NewTransaction";
+import { TransactionEditor } from "@/components/transactions/TransactionEditor";
 import { ReviewFlow } from "@/components/review/ReviewFlow";
 import { LedgerSheet } from "@/components/plan/LedgerSheet";
 import { MonthPlanSheet } from "@/components/plan/MonthPlanSheet";
-import type { BucketType, Category } from "@/lib/types";
+import type { BucketType, Category, Transaction } from "@/lib/types";
 import type { CommitmentKind } from "@/lib/commitments/types";
 
 const DEBT_PETAL = { color: "#F97316", icon: "account_balance", label: "Debt payments" };
@@ -66,6 +67,9 @@ export function HomeScreen() {
 
   const [sheet, setSheet] = useState<"account" | "txn" | "ledger" | "plan" | null>(null);
   const [detail, setDetail] = useState<Category | null>(null);
+  // A specific transaction to open for matching — the review queue only holds
+  // UNREVIEWED rows, so an already-reviewed deposit can only be reached here.
+  const [editTxn, setEditTxn] = useState<Transaction | null>(null);
   const [debtOpen, setDebtOpen] = useState(false);
   const [showReview, setShowReview] = useState(false);
 
@@ -335,28 +339,50 @@ export function HomeScreen() {
         )}
       </Card>
 
-      {/* Income counted twice — see the note above */}
+      {/* Income counted twice — see the note above.
+
+          Each row opens its OWN deposit. Sending this to the review queue was
+          a dead end: that queue holds unreviewed rows only, and these deposits
+          were reviewed long ago — they passed through without being matched,
+          which is the whole problem. */}
       {unmatchedIncome.length > 0 && (
-        <button
-          onClick={() => setShowReview(true)}
-          className="w-full rounded-[16px] border p-4 text-left"
-          style={{ background: "var(--color-surface)", borderColor: "var(--color-danger)" }}
-        >
-          <p className="text-sm font-semibold" style={{ color: "var(--color-text)" }}>
-            {unmatchedIncome.length === 1 ? "A deposit isn't" : `${unmatchedIncome.length} deposits aren't`}{" "}
-            matched to the plan
-          </p>
-          <p className="text-xs mt-0.5" style={{ color: "var(--color-muted)" }}>
-            Income above is {fmt0(overstatedBy(unmatchedIncome))} too high until they are —
-            the plan already expects this money
-          </p>
-          <p className="text-xs mt-1.5" style={{ color: "var(--color-faint)" }}>
-            {unmatchedIncome
-              .slice(0, 3)
-              .map((u) => `${u.txn.merchant || u.txn.description} · ${fmt(u.txn.amount)}`)
-              .join(" · ")}
-          </p>
-        </button>
+        <Card className="p-4 space-y-2.5" style={{ borderColor: "var(--color-danger)" }}>
+          <div>
+            <p className="text-sm font-semibold" style={{ color: "var(--color-text)" }}>
+              {unmatchedIncome.length === 1 ? "A deposit isn't" : `${unmatchedIncome.length} deposits aren't`}{" "}
+              matched to the plan
+            </p>
+            <p className="text-xs mt-0.5" style={{ color: "var(--color-muted)" }}>
+              Income above counts {fmt0(overstatedBy(unmatchedIncome))} twice until they are —
+              once as the plan line, once as the deposit
+            </p>
+          </div>
+          {unmatchedIncome.map((u) => (
+            <button
+              key={u.txn.id}
+              onClick={() => setEditTxn(u.txn)}
+              className="w-full flex items-center gap-3 text-left"
+            >
+              <div className="flex-1 min-w-0">
+                <p className="text-sm truncate" style={{ color: "var(--color-text)" }}>
+                  {u.txn.merchant || u.txn.description}
+                </p>
+                <p className="text-xs" style={{ color: "var(--color-faint)" }}>
+                  {shortDate(u.txn.date)} · expected as {u.expected.name}
+                </p>
+              </div>
+              <span className="font-figure text-sm shrink-0" style={{ color: "var(--color-positive)" }}>
+                {fmt(u.txn.amount)}
+              </span>
+              <span
+                className="text-xs font-semibold px-2.5 py-1.5 rounded-md shrink-0 text-white"
+                style={{ background: "var(--color-primary)" }}
+              >
+                Match
+              </span>
+            </button>
+          ))}
+        </Card>
       )}
 
       {/* Payments waiting on you — manual accounts only; see the note above */}
@@ -631,6 +657,7 @@ export function HomeScreen() {
         />
       )}
       {sheet === "plan" && <MonthPlanSheet month={month} onClose={() => setSheet(null)} />}
+      {editTxn && <TransactionEditor txn={editTxn} onClose={() => setEditTxn(null)} />}
       {showReview && <ReviewFlow onClose={() => setShowReview(false)} />}
       {detail && (
         <CategoryDetail
